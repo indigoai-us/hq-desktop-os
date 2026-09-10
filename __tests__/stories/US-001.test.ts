@@ -3,6 +3,7 @@ import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { includeCheckoutPath, pnpmInvocation } from '../../tests/helpers/contributor';
 
 const root = process.cwd();
 let checkout: string;
@@ -11,7 +12,8 @@ let env: NodeJS.ProcessEnv;
 // Run real commands asynchronously so test workers and child output keep moving.
 function run(args: string[], timeout = 120_000) {
   return new Promise<{ code: number | null; output: string }>((resolve, reject) => {
-    const child = spawn('pnpm', args, { cwd: checkout, env, timeout });
+    const invocation = pnpmInvocation(process.execPath, process.env.npm_execpath, args);
+    const child = spawn(invocation.command, invocation.args, { cwd: checkout, env, timeout });
     let output = '';
     child.stdout.on('data', (chunk) => { output += String(chunk); });
     child.stderr.on('data', (chunk) => { output += String(chunk); });
@@ -24,7 +26,7 @@ beforeAll(async () => {
   checkout = await mkdtemp(join(tmpdir(), 'hq-us001-'));
   await cp(root, checkout, {
     recursive: true,
-    filter: (source) => !['node_modules', '.git', 'dist', 'test-results', 'playwright-report'].includes(source.split('/').at(-1) ?? ''),
+    filter: includeCheckoutPath,
   });
   await writeFile(join(checkout, 'empty-user.npmrc'), '');
   await writeFile(join(checkout, 'empty-global.npmrc'), '');
@@ -34,6 +36,8 @@ beforeAll(async () => {
   if (!store) throw new Error('Installed pnpm store metadata is required for offline replay');
   env = {
     PATH: process.env.PATH, HOME: process.env.HOME, CI: 'true',
+    SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR,
+    TEMP: process.env.TEMP, TMP: process.env.TMP, PATHEXT: process.env.PATHEXT,
     npm_config_userconfig: join(checkout, 'empty-user.npmrc'),
     npm_config_globalconfig: join(checkout, 'empty-global.npmrc'),
     npm_config_registry: 'https://registry.npmjs.org/',
