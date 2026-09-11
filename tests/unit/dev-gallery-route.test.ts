@@ -35,6 +35,8 @@ describe('development gallery route', () => {
     // Teardown is checked, not assumed: this server owns a private optimizer
     // cache directory and must not leave it behind. A failed cleanup fails the
     // suite rather than quietly leaking into the next run.
+    // Throws on a rejected or overrunning shutdown, so the suite cannot pass on
+    // a server that never actually stopped.
     const outcome = await stopFixtureServer(server);
     if (!outcome.cacheRemoved) {
       throw new Error(`dev server left its optimizer cache behind: ${outcome.cacheDir}`);

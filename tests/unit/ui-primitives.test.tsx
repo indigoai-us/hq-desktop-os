@@ -91,6 +91,49 @@ describe('Progress reports the same amount it paints', () => {
     expect(fillPercent(bar)).toBeCloseTo(100, 5);
   });
 
+  it('treats a NaN value as unknown rather than announcing or painting NaN', () => {
+    mount(<Progress value={Number.NaN} aria-label="Sync" />);
+    const bar = container.querySelector<HTMLElement>('[role="progressbar"]')!;
+    const indicator = bar.querySelector<HTMLElement>('[data-slot="progress-indicator"]')!;
+
+    expect(bar.getAttribute('aria-valuenow')).toBeNull();
+    expect(bar.outerHTML).not.toContain('NaN');
+    expect(bar.getAttribute('data-state')).toBe('indeterminate');
+    expect(indicator.hasAttribute('data-indeterminate')).toBe(true);
+    expect(indicator.style.transform).not.toContain('NaN');
+    expect(fillPercent(bar)).toBeCloseTo(0, 5);
+  });
+
+  it('resolves the infinities to the bounds they are nearest', () => {
+    mount(<Progress value={Number.POSITIVE_INFINITY} max={200} aria-label="Sync" />);
+    let bar = container.querySelector<HTMLElement>('[role="progressbar"]')!;
+    expect(bar.getAttribute('aria-valuenow')).toBe('200');
+    expect(fillPercent(bar)).toBeCloseTo(100, 5);
+
+    act(() => {
+      root.render(<Progress value={Number.NEGATIVE_INFINITY} max={200} aria-label="Sync" />);
+    });
+    bar = container.querySelector<HTMLElement>('[role="progressbar"]')!;
+    expect(bar.getAttribute('aria-valuenow')).toBe('0');
+    expect(bar.getAttribute('data-state')).not.toBe('indeterminate');
+    expect(fillPercent(bar)).toBeCloseTo(0, 5);
+  });
+
+  it('falls back to the percentage scale when max is not a usable number', () => {
+    for (const max of [Number.NaN, 0, -50, Number.POSITIVE_INFINITY]) {
+      mount(<Progress value={25} max={max} aria-label="Sync" />);
+      const bar = container.querySelector<HTMLElement>('[role="progressbar"]')!;
+      expect(bar.getAttribute('aria-valuemax'), String(max)).toBe('100');
+      expect(bar.getAttribute('aria-valuenow'), String(max)).toBe('25');
+      expect(bar.outerHTML, String(max)).not.toContain('NaN');
+      expect(fillPercent(bar)).toBeCloseTo(25, 5);
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
   it('still reports the default percentage scale unchanged', () => {
     mount(<Progress value={42} aria-label="Workspace sync" />);
     const bar = container.querySelector<HTMLElement>('[role="progressbar"]')!;

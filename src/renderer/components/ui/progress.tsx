@@ -14,12 +14,23 @@ function Progress({
   ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root>) {
   // A caller-supplied scale is the scale: clamping 50-of-200 to 100 would
-  // report a different number than it paints.
+  // report a different number than it paints. NaN and the infinities are not
+  // scales, so they fall back rather than propagating into the output.
   const scale = typeof max === 'number' && Number.isFinite(max) && max > 0 ? max : 100;
-  // Absent or null value means "working, amount unknown". Forcing it to 0 would
-  // announce definite no-progress and paint an empty bar as if that were known.
-  const indeterminate = value === null || value === undefined;
-  const clamped = indeterminate ? null : Math.max(0, Math.min(scale, value));
+  // "Working, amount unknown" covers absent, null and any value that is not a
+  // real number: NaN is not zero progress, and announcing aria-valuenow="NaN"
+  // or painting translateX(-NaN%) tells both a screen reader and a sighted user
+  // nothing. Infinities are treated as the known bounds they are closest to.
+  const numeric =
+    typeof value === 'number' && !Number.isNaN(value)
+      ? value === Infinity
+        ? scale
+        : value === -Infinity
+          ? 0
+          : value
+      : null;
+  const indeterminate = numeric === null;
+  const clamped = numeric === null ? null : Math.max(0, Math.min(scale, numeric));
   // One normalized ratio drives both the fill and what is announced.
   const percent = clamped === null ? 0 : (clamped / scale) * 100;
 

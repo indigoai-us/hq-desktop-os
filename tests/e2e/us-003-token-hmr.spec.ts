@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import type { ViteDevServer } from 'vite';
@@ -54,11 +54,12 @@ test.describe('US-003 development token HMR', () => {
   });
 
   test.afterAll(async () => {
-    try {
-      await stopFixtureServer(server);
-    } finally {
-      if (fixture) rmSync(fixture, { recursive: true, force: true });
-    }
+    // The fixture copy is handed to the teardown helper so it is deleted only
+    // after the server has confirmed shutdown — removing a tree the watcher is
+    // still holding is how teardown becomes the next run's mystery failure.
+    const outcome = await stopFixtureServer(server, { fixtureDir: fixture });
+    expect(outcome.cacheRemoved, 'optimizer cache survived teardown').toBe(true);
+    expect(outcome.fixtureRemoved, 'fixture copy survived teardown').toBe(true);
   });
 
   async function controlStyles(page: Page) {

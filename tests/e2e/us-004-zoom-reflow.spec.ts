@@ -55,7 +55,8 @@ type Readability = {
   canvasFontDevicePx: number;
   titleFontDevicePx: number;
   missing: string[];
-  selfClipped: string[];
+  hiddenContent: string[];
+  clippedByAncestor: string[];
   outsideViewport: string[];
   occluded: string[];
   measured: number;
@@ -64,17 +65,87 @@ type Readability = {
 /**
  * Measure what a reader can actually reach.
  *
- * Each subject is scrolled to first — vertical scrolling is allowed, losing
- * content sideways is not — then three separate ways of being unreadable are
- * checked: the element clipping its own text, the element sitting outside the
- * viewport horizontally or above it, and an ancestor or overlay covering it.
- * `elementFromPoint` is what catches ancestor `overflow` clipping, which a
- * bounding box alone cannot see.
+ * The earlier predicate compared `scrollHeight` with `clientHeight` and called
+ * any difference clipping. That is wrong for text: with `overflow: visible` —
+ * the default, and what these labels use — a glyph box taller than the content
+ * box still paints in full, which is exactly the 448x15 reading the parent's
+ * run reported for `leading-none` labels. Overflow only hides something when an
+ * element, or an ancestor, actually clips.
+ *
+ * So three distinct questions are asked, and each is asserted separately:
+ *
+ *  - hiddenContent: this element clips its own overflow (`overflow` is not
+ *    visible) and its content is larger than its box, so text really is cut.
+ *  - clippedByAncestor: the element's rendered TEXT bounds, taken from a Range
+ *    over its own text nodes, fall outside the intersection of the viewport and
+ *    every genuinely clipping ancestor's padding box.
+ *  - occluded: something else is painted on top at the subject's midpoint.
+ *
+ * Each subject is scrolled into view first: vertical scrolling is allowed,
+ * losing content sideways or behind a clip is not.
  */
 async function readability(page: Page, subjects: readonly string[]): Promise<Readability> {
   return page.evaluate((wanted) => {
+    type Box = { left: number; top: number; right: number; bottom: number };
+    const TOLERANCE = 1;
+
+    const intersect = (a: Box, b: Box): Box => ({
+      left: Math.max(a.left, b.left),
+      top: Math.max(a.top, b.top),
+      right: Math.min(a.right, b.right),
+      bottom: Math.min(a.bottom, b.bottom),
+    });
+
+    /** Does this element clip what overflows it? */
+    const clips = (element: Element): boolean => {
+      const style = getComputedStyle(element);
+      return [style.overflowX, style.overflowY].some((value) => value !== 'visible');
+    };
+
+    /** Viewport ∩ every clipping ancestor's padding box. */
+    const clipBox = (element: HTMLElement): Box => {
+      let box: Box = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+      for (let node = element.parentElement; node; node = node.parentElement) {
+        if (!clips(node)) continue;
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        // Padding box: borders are not content area.
+        box = intersect(box, {
+          left: rect.left + parseFloat(style.borderLeftWidth),
+          top: rect.top + parseFloat(style.borderTopWidth),
+          right: rect.right - parseFloat(style.borderRightWidth),
+          bottom: rect.bottom - parseFloat(style.borderBottomWidth),
+        });
+      }
+      return box;
+    };
+
+    /** Union of the glyph boxes of this element's own text, if it has any. */
+    const textBox = (element: HTMLElement): Box | null => {
+      const range = document.createRange();
+      let found: Box | null = null;
+      for (const node of element.childNodes) {
+        if (node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()) continue;
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width === 0 && rect.height === 0) continue;
+          found = found
+            ? {
+                left: Math.min(found.left, rect.left),
+                top: Math.min(found.top, rect.top),
+                right: Math.max(found.right, rect.right),
+                bottom: Math.max(found.bottom, rect.bottom),
+              }
+            : { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+        }
+      }
+      range.detach();
+      return found;
+    };
+
     const missing: string[] = [];
-    const selfClipped: string[] = [];
+    const hiddenContent: string[] = [];
+    const clippedByAncestor: string[] = [];
     const outsideViewport: string[] = [];
     const occluded: string[] = [];
     let measured = 0;
@@ -103,25 +174,47 @@ async function readability(page: Page, subjects: readonly string[]): Promise<Rea
       }
       measured += 1;
 
+      // 1. Does the element cut its own content off?
       if (
-        element.scrollWidth > Math.ceil(element.clientWidth) + 1 ||
-        element.scrollHeight > Math.ceil(element.clientHeight) + 1
+        clips(element) &&
+        (element.scrollWidth > Math.ceil(element.clientWidth) + TOLERANCE ||
+          element.scrollHeight > Math.ceil(element.clientHeight) + TOLERANCE)
       ) {
-        selfClipped.push(`${id}:${element.scrollWidth}x${element.scrollHeight}`);
-      }
-      if (
-        rect.left < -1 ||
-        rect.right > window.innerWidth + 1 ||
-        rect.bottom < -1 ||
-        rect.top > window.innerHeight + 1
-      ) {
-        outsideViewport.push(
-          `${id}:${Math.round(rect.left)},${Math.round(rect.right)},${Math.round(rect.top)}`,
+        hiddenContent.push(
+          `${id}:${element.scrollWidth}x${element.scrollHeight}>${element.clientWidth}x${element.clientHeight}`,
         );
+      }
+
+      // 2. Is what it paints inside every real clip boundary?
+      const box = clipBox(element);
+      const painted = textBox(element) ?? {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      };
+      if (
+        painted.left < box.left - TOLERANCE ||
+        painted.right > box.right + TOLERANCE ||
+        painted.top < box.top - TOLERANCE ||
+        painted.bottom > box.bottom + TOLERANCE
+      ) {
+        const viewportOnly =
+          box.left === 0 &&
+          box.top === 0 &&
+          box.right === window.innerWidth &&
+          box.bottom === window.innerHeight;
+        const report =
+          `${id}:painted ${Math.round(painted.left)},${Math.round(painted.top)},` +
+          `${Math.round(painted.right)},${Math.round(painted.bottom)} ` +
+          `outside ${Math.round(box.left)},${Math.round(box.top)},` +
+          `${Math.round(box.right)},${Math.round(box.bottom)}`;
+        if (viewportOnly) outsideViewport.push(report);
+        else clippedByAncestor.push(report);
         continue;
       }
-      // Ancestor overflow or an overlay hiding the subject: ask the document
-      // what is actually painted at the subject's midpoint.
+
+      // 3. Is anything painted over it?
       const x = Math.min(Math.max(rect.left + rect.width / 2, 1), window.innerWidth - 1);
       const y = Math.min(Math.max(rect.top + rect.height / 2, 1), window.innerHeight - 1);
       const hit = document.elementFromPoint(x, y);
@@ -141,7 +234,8 @@ async function readability(page: Page, subjects: readonly string[]): Promise<Rea
         parseFloat(getComputedStyle(document.querySelector('h1')!).fontSize) *
         window.devicePixelRatio,
       missing,
-      selfClipped,
+      hiddenContent,
+      clippedByAncestor,
       outsideViewport,
       occluded,
       measured,
@@ -211,8 +305,9 @@ test.describe('US-004 readability at a 200% zoom surrogate', () => {
       // Reflow: no second scrolling direction.
       expect(zoomed.horizontalOverflow).toBeLessThanOrEqual(1);
 
-      // Three independent ways of being unreadable, each asserted.
-      expect(zoomed.selfClipped).toEqual([]);
+      // Four independent ways of being unreadable, each asserted.
+      expect(zoomed.hiddenContent).toEqual([]);
+      expect(zoomed.clippedByAncestor).toEqual([]);
       expect(zoomed.outsideViewport).toEqual([]);
       expect(zoomed.occluded).toEqual([]);
 
@@ -220,7 +315,8 @@ test.describe('US-004 readability at a 200% zoom surrogate', () => {
       await revealTooltip(zoomedPage);
       const tooltip = await readability(zoomedPage, TOOLTIP_SUBJECT);
       expect(tooltip.missing).toEqual([]);
-      expect(tooltip.selfClipped).toEqual([]);
+      expect(tooltip.hiddenContent).toEqual([]);
+      expect(tooltip.clippedByAncestor).toEqual([]);
       expect(tooltip.outsideViewport).toEqual([]);
       expect(tooltip.occluded).toEqual([]);
 
@@ -250,22 +346,50 @@ test.describe('US-004 readability at a 200% zoom surrogate', () => {
       const dialog = await page.evaluate(() => {
         const content = document.querySelector<HTMLElement>('[data-slot="dialog-content"]')!;
         const rect = content.getBoundingClientRect();
-        const title = content.querySelector<HTMLElement>('[data-slot="dialog-title"]')!;
-        const description = content.querySelector<HTMLElement>('[data-slot="dialog-description"]')!;
-        const overflows = (element: HTMLElement) =>
-          element.scrollWidth > Math.ceil(element.clientWidth) + 1 ||
-          element.scrollHeight > Math.ceil(element.clientHeight) + 1;
+        // A dialog is unusable if its actions are off the bottom of the screen,
+        // so every edge is checked, not only the horizontal ones.
+        const fullyReachable = (element: HTMLElement) => {
+          const box = element.getBoundingClientRect();
+          return (
+            box.height > 0 &&
+            box.left >= -1 &&
+            box.right <= window.innerWidth + 1 &&
+            box.top >= -1 &&
+            box.bottom <= window.innerHeight + 1
+          );
+        };
+        const cut = (element: HTMLElement) => {
+          const style = getComputedStyle(element);
+          const clips = [style.overflowX, style.overflowY].some((value) => value !== 'visible');
+          return (
+            clips &&
+            (element.scrollWidth > Math.ceil(element.clientWidth) + 1 ||
+              element.scrollHeight > Math.ceil(element.clientHeight) + 1)
+          );
+        };
+        const actions = [...content.querySelectorAll<HTMLElement>('button')];
         return {
-          withinViewport:
-            rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.top >= -1,
-          titleClipped: overflows(title),
-          descriptionClipped: overflows(description),
-          horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          contentReachable: fullyReachable(content),
+          contentBottom: Math.round(rect.bottom),
+          viewportHeight: window.innerHeight,
+          titleCut: cut(content.querySelector<HTMLElement>('[data-slot="dialog-title"]')!),
+          descriptionCut: cut(
+            content.querySelector<HTMLElement>('[data-slot="dialog-description"]')!,
+          ),
+          actionCount: actions.length,
+          unreachableActions: actions
+            .filter((action) => !fullyReachable(action))
+            .map((action) => action.getAttribute('data-testid') ?? action.textContent?.trim()),
+          horizontalOverflow:
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
         };
       });
-      expect(dialog.withinViewport).toBe(true);
-      expect(dialog.titleClipped).toBe(false);
-      expect(dialog.descriptionClipped).toBe(false);
+      expect(dialog.contentReachable).toBe(true);
+      expect(dialog.titleCut).toBe(false);
+      expect(dialog.descriptionCut).toBe(false);
+      // Close and Unmount opener: both actionable controls must be reachable.
+      expect(dialog.actionCount).toBeGreaterThanOrEqual(2);
+      expect(dialog.unreachableActions).toEqual([]);
       expect(dialog.horizontalOverflow).toBeLessThanOrEqual(1);
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -275,19 +399,45 @@ test.describe('US-004 readability at a 200% zoom surrogate', () => {
       await tabToTestId(page, 'gallery-region');
       await page.keyboard.press('Enter');
       await expect(page.getByRole('listbox')).toBeVisible();
-      const options = await page.evaluate(() =>
-        [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => {
+      const options = await page.evaluate(() => {
+        const clips = (element: Element) => {
+          const style = getComputedStyle(element);
+          return [style.overflowX, style.overflowY].some((value) => value !== 'visible');
+        };
+        // The popover viewport scrolls its own options, so each one is brought
+        // into that scroller before being measured.
+        return [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => {
+          option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
           const rect = option.getBoundingClientRect();
+          // Intersection of the viewport with every clipping ancestor: the
+          // popover's own scroll container is one of them.
+          let box = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+          for (let node = option.parentElement; node; node = node.parentElement) {
+            if (!clips(node)) continue;
+            const ancestor = node.getBoundingClientRect();
+            box = {
+              left: Math.max(box.left, ancestor.left),
+              top: Math.max(box.top, ancestor.top),
+              right: Math.min(box.right, ancestor.right),
+              bottom: Math.min(box.bottom, ancestor.bottom),
+            };
+          }
           return {
             text: option.textContent?.trim(),
-            within: rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.height > 0,
-            clipped: option.scrollWidth > Math.ceil(option.clientWidth) + 1,
+            // Every edge, so a vertically clipped or offscreen option fails.
+            reachable:
+              rect.height > 0 &&
+              rect.left >= box.left - 1 &&
+              rect.right <= box.right + 1 &&
+              rect.top >= box.top - 1 &&
+              rect.bottom <= box.bottom + 1,
+            cut: clips(option) && option.scrollWidth > Math.ceil(option.clientWidth) + 1,
           };
-        }),
-      );
+        });
+      });
       expect(options.length).toBe(3);
-      expect(options.filter((option) => !option.within)).toEqual([]);
-      expect(options.filter((option) => option.clipped)).toEqual([]);
+      expect(options.filter((option) => !option.reachable)).toEqual([]);
+      expect(options.filter((option) => option.cut)).toEqual([]);
       await page.keyboard.press('Escape');
     } finally {
       await context.close();
@@ -350,7 +500,8 @@ test.describe('US-004 readability at a 200% zoom surrogate', () => {
       const measured = await readability(page, REQUIRED_SUBJECTS);
       expect(measured.missing).toEqual([]);
       expect(measured.horizontalOverflow).toBeLessThanOrEqual(1);
-      expect(measured.selfClipped).toEqual([]);
+      expect(measured.hiddenContent).toEqual([]);
+      expect(measured.clippedByAncestor).toEqual([]);
       expect(measured.outsideViewport).toEqual([]);
       expect(measured.occluded).toEqual([]);
       await expect(page.getByTestId('gallery-email-error')).toBeVisible();
@@ -359,8 +510,12 @@ test.describe('US-004 readability at a 200% zoom surrogate', () => {
       await revealTooltip(page);
       const tooltip = await readability(page, TOOLTIP_SUBJECT);
       expect(tooltip.missing).toEqual([]);
-      expect(tooltip.selfClipped).toEqual([]);
+      expect(tooltip.hiddenContent).toEqual([]);
+      expect(tooltip.clippedByAncestor).toEqual([]);
       expect(tooltip.outsideViewport).toEqual([]);
+      // An open tooltip is the topmost thing at its own midpoint; if something
+      // covers it, the helper text is unreadable however large it is.
+      expect(tooltip.occluded).toEqual([]);
     } finally {
       await context.close();
     }

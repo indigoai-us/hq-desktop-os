@@ -26,8 +26,11 @@ export async function startGalleryServer(port: number): Promise<{
 }
 
 /**
- * Shut the spec's server down and confirm its optimizer cache was removed, so a
- * leaked cache directory cannot quietly accumulate or collide with a later run.
+ * Shut the spec's server down and confirm its optimizer cache was removed.
+ *
+ * `stopFixtureServer` throws when the shutdown rejects or outlives its bound, so
+ * that failure reaches the spec instead of being swallowed; a surviving cache
+ * directory is raised here for the same reason.
  */
 export async function stopGalleryServer(server: ViteDevServer | undefined): Promise<void> {
   const outcome = await stopFixtureServer(server);
