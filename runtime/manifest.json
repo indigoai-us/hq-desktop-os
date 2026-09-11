@@ -102,7 +102,8 @@
       "credentialLifecycle": "covered",
       "guidedSetup": "covered",
       "companySelection": "covered",
-      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts). Guided setup journal + crash recovery (setup-state.ts / tests/native/setup.test.ts); membership discovery keeps explicit retry state and opens hq.computer create/invite web flows with focus-return refresh."
+      "syncSupervisor": "covered",
+      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts). Guided setup journal + crash recovery (setup-state.ts / tests/native/setup.test.ts); membership discovery keeps explicit retry state and opens hq.computer create/invite web flows with focus-return refresh. US-012: shared hq-sync-runner argv (--watch/--direction both/--event-push + explicit scope), NDJSON protocol reduce, exclusive desktop-sync lock, bounded restart/backoff, pause/resume + IPC stop that preserves HQ_STATE_DIR journals (src/main/sync/*, tests/unit/sync-supervisor.test.ts, tests/runtime/supervisor.test.ts). Authenticated live subscribe/exchange evidence remains deferred to user OAuth desktop acceptance — unit/integration probes cover the contract without claiming a live cloud round trip."
     },
     "windows": {
       "childProcessIpc": "deferred",
@@ -111,13 +112,15 @@
       "credentialLifecycle": "deferred",
       "guidedSetup": "deferred",
       "companySelection": "deferred",
-      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance and Windows guided setup); prepare-runtime records the gap without blocking Linux acceptance."
+      "syncSupervisor": "deferred",
+      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance, Windows guided setup, and Windows sync supervisor); prepare-runtime records the gap without blocking Linux acceptance."
     },
     "wsl2": {
       "childProcessIpc": "deferred",
       "shutdown": "deferred",
       "workspaceRegistry": "deferred",
       "credentialLifecycle": "deferred",
+      "syncSupervisor": "deferred",
       "discovery": "contract-only",
       "notes": "WSL discovery module returns actionable unavailable/missing/stopped states and rejects WSL1 via injectable parser tests. Live Windows WSL2 picker + runtime ownership remain US-014; not claimed from Linux fixtures. Auth handoff into a distro is US-014."
     }

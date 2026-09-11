@@ -71,10 +71,12 @@ Setup download licenses are listed in the toolchain table above. A fuller instal
 
 ### Linux (accepted for this story)
 
-- Unit coverage: `tests/unit/sync-supervisor.test.ts` — private token IPC, stop-before-token-leak, ownership until close.
+- Unit coverage: `tests/unit/sync-supervisor.test.ts` — private token IPC, stop-before-token-leak, ownership until close, bounded restart/backoff, pause clears pending restart.
+- Runtime supervisor contract: `tests/runtime/supervisor.test.ts` — PRD modules, watch/both/event-push argv, NDJSON outcomes, exclusive lock constants.
 - Packaged probe: `scripts/verify-sync-child.mjs` — Electron Node starts the shared engine, requires private token IPC, excludes concurrent CLI writers, cancels and releases the operation lock with no orphaned journal/token state.
 - App shutdown gate: `src/main/shutdown.ts` blocks quit until owned cleanup finishes.
 - Runtime payload test: `tests/runtime/payload.test.ts` forks an Electron-as-Node child, exchanges structured IPC events, stops it, and asserts exit with no leftover handle.
+- Canonical modules: `src/main/sync/supervisor.ts`, `src/main/sync/protocol.ts`, `src/main/sync/ownership.ts`, `src/shared/sync.ts` (compat re-exports remain at `sync-supervisor.ts` / `sync-state.ts`).
 
 ### Windows / WSL2 (recorded, not blocking Linux AC)
 

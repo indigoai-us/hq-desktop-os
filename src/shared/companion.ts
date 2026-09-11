@@ -2,13 +2,14 @@ import type { CompanionHealth } from './health.js';
 import type { CredentialStorageStatus, PublicAccount } from './auth.js';
 import type { Workspace } from './workspace.js';
 import { isHqWebDestination, type HqWebDestination } from './hq-web.js';
+import type { SyncStatus } from './sync.js';
 
 export type { Workspace, WorkspaceEnvironment } from './workspace.js';
 export type { AccountStatus, CredentialStorageStatus, PublicAccount } from './auth.js';
 export type { HqWebDestination } from './hq-web.js';
+export type { SyncPhase, SyncStatus } from './sync.js';
 
 /** Serializable desktop state. Credentials and arbitrary host commands never cross IPC. */
-export type SyncPhase = 'not-connected' | 'idle' | 'syncing' | 'paused' | 'offline' | 'conflict' | 'error';
 /** Engine `--on-conflict` strategies from hq-cloud sync-runner. */
 export const CONFLICT_CHOICES = ['keep', 'publish-local', 'overwrite', 'abort'] as const;
 export type ConflictChoice = typeof CONFLICT_CHOICES[number];
@@ -31,7 +32,7 @@ export interface CompanionSnapshot {
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
   account: PublicAccount;
-  sync: { phase: SyncPhase; lastSuccess: string | null; message: string; conflicts: number; conflictPaths: string[] };
+  sync: SyncStatus;
   runtime: { version: string; available: boolean; node: string };
   credentials: CredentialStorageStatus;
   preferences: { closeToTray: boolean; launchAtLogin: boolean };
