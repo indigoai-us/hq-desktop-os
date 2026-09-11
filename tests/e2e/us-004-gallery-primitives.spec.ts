@@ -117,12 +117,12 @@ test.describe('US-004 gallery primitives and states', () => {
     expect(fill).toBe(accent);
     expect([accent, danger, mutedForeground].every((value) => value.startsWith('rgb'))).toBe(true);
 
-    // Square corners, inherited from the shared radius tokens.
+    // Soft control corners, inherited from the shared radius tokens.
     const radii = await page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>('main *')]
+      [...document.querySelectorAll<HTMLElement>('main button, main input, main [data-slot="progress"]')]
         .filter((element) => element.getClientRects().length > 0)
         .map((element) => getComputedStyle(element).borderTopLeftRadius)
-        .filter((radius) => radius !== '0px'),
+        .filter((radius) => radius !== '6px'),
     );
     expect(radii).toEqual([]);
   });

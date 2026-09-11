@@ -140,7 +140,7 @@ export function registerPlatformIpc(rendererUrl: string, companion?: CompanionSe
 
     [IPC_CHANNELS.appRelaunch]: async () => {
       app.relaunch();
-      app.exit(0);
+      app.quit();
       return { ok: true, value: undefined };
     },
 

@@ -71,7 +71,8 @@ export async function readThemeTimeline(page: Page): Promise<ThemeTimeline> {
 
 /** Relative luminance of a `#rrggbb` token value, so themes are compared by behaviour. */
 export function hexLuminance(value: string): number {
-  const hex = /^#([0-9a-f]{6})$/i.exec(value.trim())?.[1];
+  const short = /^#([0-9a-f]{3})$/i.exec(value.trim())?.[1];
+  const hex = short ? [...short].map(c => c + c).join('') : /^#([0-9a-f]{6})$/i.exec(value.trim())?.[1];
   if (!hex) throw new Error(`Expected a #rrggbb token value, received "${value}"`);
   const channel = (offset: number) => {
     const srgb = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;

@@ -120,15 +120,15 @@ test.describe('US-002 external link policy', () => {
       await expect.poll(isLoading, { timeout: 15_000 }).toBe(false);
       expect(await currentUrl(), `navigation to ${target} must be refused`).toBe(originalUrl);
       expect(await appWindow.evaluate(() => document.querySelector('h1')?.textContent)).toBe(
-        'Your desktop companion',
+        'Your work, right here.',
       );
     }
   });
 
-  test('opens the reviewed docs link from the application UI', async () => {
+  test('keeps documentation links out of the application UI', async () => {
     const before = (await openedExternal()).length;
-    await appWindow.getByTestId('open-docs').click();
-    await expect(appWindow.getByTestId('platform-last-result')).toHaveText('Open docs → ok');
-    expect((await openedExternal()).slice(before)).toEqual([REVIEWED]);
+    await appWindow.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(appWindow.getByTestId('open-docs')).toHaveCount(0);
+    expect((await openedExternal()).length).toBe(before);
   });
 });

@@ -1,98 +1,123 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Monitor, ShieldCheck, Circle, Trash2, Terminal, Code, FileDown } from 'lucide-react';
+import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, FileDown, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
 import { activeWorkspace, type CompanionAction, type CompanionSnapshot } from '../shared/companion';
 import { createCompanionClient, type CompanionClient } from './companion-client';
-import { getPlatformClient, openReviewedDocsLink } from './platform';
 import { ThemeControl } from './theme';
+import { HqMark } from './components/hq-mark';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 
-const sections = [{ name: 'Setup', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
+const sections = [{ name: 'Workspace', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
 type Section = typeof sections[number]['name'];
 export function CompanionApp() {
-  const [section, setSection] = useState<Section>('Setup');
+  const [section, setSection] = useState<Section>('Workspace');
   const [client, setClient] = useState<CompanionClient>();
   const [state, setState] = useState<CompanionSnapshot>();
   const [error, setError] = useState('');
   const [pending, setPending] = useState('');
   const busy = useRef(false);
+  const requestVersion = useRef(0);
   const [removeId, setRemoveId] = useState<string>();
-  const [lastResult, setLastResult] = useState('No native action yet');
-  const platform = getPlatformClient();
-  const native = platform.availability === 'native';
   useEffect(() => {
     let active = true;
     void createCompanionClient().then(async (adapter) => {
       if (!active) return;
       setClient(adapter);
       try { const snapshot = await adapter.request({ action: 'snapshot' }); if (active) setState(snapshot); }
-      catch (cause) { if (active) setError(cause instanceof Error ? cause.message : 'Could not read desktop state.'); }
-    }).catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Could not initialize desktop services.'); });
+      catch (cause) { console.error('Workspace state could not be loaded', cause instanceof Error ? cause.name : 'unknown'); if (active) setError('We could not open your workspace. Try reopening the app.'); }
+    }).catch(() => { if (active) setError('Open HQ on your computer to get started.'); });
     return () => { active = false; };
   }, []);
+  useEffect(() => {
+    if (!client) return;
+    let active = true; let reading = false;
+    const timer = setInterval(() => {
+      if (busy.current || reading) return;
+      reading = true; const version = requestVersion.current;
+      void client.request({ action: 'snapshot' }).then(snapshot => {
+        if (active && version === requestVersion.current) setState(snapshot);
+      }).catch((cause: unknown) => { console.error('HQ status refresh failed', cause instanceof Error ? cause.name : 'unknown'); }).finally(() => { reading = false; });
+    }, 1000);
+    return () => { active = false; clearInterval(timer); };
+  }, [client]);
   const run = useCallback(async (action: CompanionAction, label: string) => {
     if (!client || busy.current) return;
-    busy.current = true; setPending(label); setError('');
+    requestVersion.current++; busy.current = true; setPending(label); setError('');
     try { setState(await client.request(action)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Desktop operation failed.'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'That did not finish. Please try again.'); }
     finally { busy.current = false; setPending(''); }
   }, [client]);
   const workspace = state && activeWorkspace(state);
-  const enabled = !!state && !pending;
-  const checkNative = async () => {
-    setLastResult('Check native → pending');
-    const result = await platform.getInfo();
-    setLastResult(result.ok ? 'Check native → ok' : `Check native → ${result.error.code}: ${result.error.message}`);
-  };
-  const docs = async () => {
-    setLastResult('Open docs → pending');
-    const result = await openReviewedDocsLink(platform);
-    setLastResult(result.ok ? 'Open docs → ok' : `Open docs → ${result.error.code}: ${result.error.message}`);
-  };
+  const setupRunning = !!state?.setup?.steps.some(step => step.status === 'working');
+  const signingIn = state?.account.status === 'signing-in';
+  const enabled = !!state && !pending && !setupRunning && !signingIn;
+  const attach = () => void run({ action: 'attach-workspace' }, 'Choosing your folder');
+  const connected = state?.account.status === 'connected';
   return <div className="companion-shell">
     <aside className="companion-sidebar" aria-label="Desktop navigation">
-      <div className="workspace-caption"><Monitor size={16} /><span>{workspace?.name ?? 'No workspace selected'}</span></div>
-      <p className="muted environment">{state ? state.platform === 'win32' ? 'Windows · native' : 'Linux · native' : 'Browser preview'}</p>
+      <HqMark className="brand-mark" />
       <nav aria-label="Companion">
-        {sections.map(({ name, icon: Icon }) => <button key={name} className="hq-button hq-nav-item" data-testid={name === 'Setup' ? 'selected-sample' : undefined} data-selected={section === name} aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}><Icon size={16}/>{name}</button>)}
+        {sections.map(({ name, icon: Icon }) => <button key={name} className="hq-button hq-nav-item" data-testid={name === 'Workspace' ? 'selected-sample' : undefined} data-selected={section === name} aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}><Icon size={17}/>{name}</button>)}
       </nav>
-      <section className="sidebar-footer" aria-label="Application actions">
-        <ThemeControl />
-        <button className="text-action" data-testid="open-docs" aria-describedby={native ? undefined : "platform-unavailable-note"} disabled={!native} onClick={() => void docs()}>Open documentation in your browser <ArrowUpRight size={14}/></button>
-        <button className="text-action" data-testid="check-native" onClick={() => void checkNative()}>Check native connection</button>
-        <p className="muted" data-testid="platform-availability">{native ? 'Native bridge connected' : 'Native bridge unavailable'}</p>
-        <p className="muted" role="status" data-testid="platform-last-result">{lastResult}</p>
-      </section>
+      <div className="sidebar-footer"><Laptop size={15}/>This computer<span>{workspace?.name ?? 'Let’s get you set up'}</span></div>
     </aside>
-    <main className="companion-main" data-focus-shell tabIndex={-1}>
-      <header className="page-heading"><div><p className="eyebrow">{section === 'Setup' ? 'WORKSPACE' : section.toUpperCase()}</p><h1 className="hq-title">{section === 'Setup' ? 'Your desktop companion' : section}</h1></div><span className="build-label">Local test build {state?.version}</span></header>
-      {client?.simulated && <p role="status" className="notice">Development preview · Simulated workspace data. Native actions are not performed.</p>}
-      {!native && !client?.simulated && <p className="notice" role="status" data-testid="platform-unavailable" id="platform-unavailable-note">Native platform unavailable · Preload bridge missing. Native actions are disabled rather than simulated.</p>}
-      {error && <div role="alert" className="notice error">{error}<Button variant="outline" onClick={() => void run({ action: 'snapshot' }, 'Reading desktop state')}>Retry</Button></div>}
+    <main className="companion-main" data-focus-shell tabIndex={-1} aria-busy={!!pending}>
+      {client?.simulated && <p role="status" className="notice">Preview · Changes here are not saved.</p>}
+      {error && <div role="alert" className="notice error">{error}<Button variant="ghost" onClick={() => void run({ action: 'snapshot' }, 'Trying again')}>Try again</Button></div>}
+      {state?.account.error && <p role="alert" className="notice error">{state.account.error}</p>}
+      {signingIn && <div role="status" className="notice">Finish signing in through your browser.<Button variant="ghost" disabled={!!pending} onClick={() => void run({ action: 'cancel-sign-in' }, 'Canceling sign-in')}>Cancel sign-in</Button></div>}
       {pending && <p role="status" className="notice">{pending}…</p>}
-      {!state && !error && <p role="status">Loading desktop state…</p>}
-      {section === 'Setup' && <>
-        <p className="lead muted">Keep your HQ workspace close. Open your files and tools from one place.</p>
-        <section className="panel"><div className="panel-heading"><h2>Workspaces</h2><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'attach-workspace' }, 'Choosing workspace')}><Plus size={15}/>Attach existing HQ</Button></div>
-          {!state?.workspaces.length ? <div className="empty-state"><FolderOpen size={28} strokeWidth={1}/><h2>Choose your HQ folder</h2><p className="muted">Attach an existing workspace containing your core and companies folders. Your files stay where they are.</p><p className="muted">Fresh workspace creation will be available after the setup integration is verified.</p></div> : <ul className="workspace-list">{state.workspaces.map((item) => <li key={item.id} data-selected={item.id === state.activeWorkspaceId}><button className="workspace-choice" aria-pressed={item.id === state.activeWorkspaceId} disabled={!enabled} onClick={() => void run({ action: 'select-workspace', workspaceId: item.id }, 'Selecting workspace')}><FolderOpen size={18}/><span><span>{item.name}</span><span className="muted workspace-path">{item.root}</span></span><span className="muted">{item.environment}</span></button><Button variant="ghost" size="icon" aria-label={`Remove ${item.name} from app`} disabled={!enabled} onClick={() => setRemoveId(item.id)}><Trash2 size={15}/></Button></li>)}</ul>}
+      {!state && !error && <p role="status">Opening HQ…</p>}
+      {section === 'Workspace' && state?.setup && !state.setup.complete ? <section className="welcome" aria-label="HQ setup">
+        <HqMark className="welcome-mark"/><h1>{setupRunning ? 'Getting HQ ready' : 'Let’s finish setting up'}</h1>
+        <p className="lead">We’ll prepare your workspace and the software it needs. This can take a few minutes.</p>
+        <ol className="setup-steps setup-progress">{state.setup.steps.map((step, index) => <li key={step.id}><span className="step-symbol">{step.status === 'ready' ? <Check size={16}/> : index + 1}</span><div><h2>{step.label}</h2><p>{step.status === 'ready' ? 'Ready' : step.status === 'working' ? 'In progress…' : step.status === 'error' ? 'Needs another try' : 'Up next'}</p></div></li>)}</ol>
+        {state.setup.error && <p className="notice error" role="alert">{state.setup.error}</p>}
+        <div className="welcome-actions">{setupRunning ? <Button variant="outline" disabled={!!pending} onClick={() => void run({ action: 'cancel-setup' }, 'Stopping setup')}>Cancel setup</Button> : <><Button disabled={!!pending} onClick={() => void run({ action: 'resume-setup' }, 'Continuing setup')}>Continue setup<ArrowRight size={16}/></Button><Button variant="ghost" disabled={!!pending} onClick={() => void run({ action: 'reset-setup' }, 'Choosing a different folder')}>Choose another folder</Button></>}</div>
+      </section> : section === 'Workspace' && !workspace ? <section className="welcome">
+        <HqMark className="welcome-mark"/>
+        <h1>Your work, right here.</h1>
+        <p className="lead">Set up HQ on this computer and bring your files and team together.</p>
+        <div className="welcome-actions"><Button disabled={!enabled} onClick={() => void run({ action: 'create-workspace' }, 'Preparing your workspace')}>Set up HQ<ArrowRight size={16}/></Button><Button variant="ghost" disabled={!enabled} onClick={attach}>I already have an HQ folder</Button></div>
+        <ol className="setup-steps">
+          <li><span className="step-symbol">1</span><div><h2>Make yourself at home</h2><p>Choose where your work lives on this computer.</p></div></li>
+          <li><span className="step-symbol">2</span><div><h2>Connect your account</h2><p>Sign in to find your team and shared work.</p></div></li>
+          <li><span className="step-symbol">3</span><div><h2>Pick up where you left off</h2><p>Keep your files up to date across your devices.</p></div></li>
+        </ol>
+      </section> : section === 'Workspace' && <>
+        <header className="page-heading"><h1>Your workspace</h1><p className="lead">A home for your work on this computer.</p></header>
+        <section className="content-section"><div className="section-heading"><h2>Folders</h2><Button variant="ghost" disabled={!enabled} onClick={attach}><Plus size={15}/>Add a folder</Button></div>
+          <ul className="workspace-list">{state?.workspaces.map((item) => <li key={item.id} data-selected={item.id === state.activeWorkspaceId}><button className="workspace-choice" aria-pressed={item.id === state.activeWorkspaceId} disabled={!enabled} onClick={() => void run({ action: 'select-workspace', workspaceId: item.id }, 'Switching workspace')}><FolderOpen size={22}/><span><span>{item.name}</span><span className="muted workspace-path">{item.root}</span></span>{item.id === state.activeWorkspaceId && <Check size={16}/>}</button><Button variant="ghost" size="icon" aria-label={`Remove ${item.name} from app`} disabled={!enabled} onClick={() => setRemoveId(item.id)}><Trash2 size={15}/></Button></li>)}</ul>
+          <div className="welcome-actions"><Button disabled={!enabled} onClick={() => void run({ action: 'open-folder', workspaceId: workspace!.id }, 'Opening your files')}><FolderOpen size={16}/>Open your files</Button></div>
         </section>
-        <section className="panel"><div className="panel-heading"><h2>Account connection</h2><span className="status-label"><Circle size={10}/>Not connected</span></div><p className="muted">Browser sign-in and secure token storage are still being integrated. Sync remains disabled in this build.</p></section>
+        <section className="account-row"><UserRound size={23}/><div><h2>{connected ? state?.account.label ?? 'Your account' : 'Connect your account'}</h2><p>{connected ? 'You’re signed in to HQ.' : 'Sign in to bring your shared work to this computer.'}</p></div><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: connected ? 'sign-out' : 'sign-in' }, connected ? 'Signing out' : 'Opening sign-in')}>{connected ? 'Sign out' : 'Sign in'}{!connected && <ArrowUpRight size={15}/>}</Button></section>
       </>}
       {section === 'Sync' && <>
-        <p className="lead muted">The shared HQ engine will keep your selected workspace in sync.</p>
-        <section className="panel"><div className="panel-heading"><h2>{workspace?.name ?? 'No workspace selected'}</h2><span className="status-label">Not connected</span></div><p>{state?.sync.message ?? 'Open the installed app to read sync status.'}</p><dl className="detail-grid"><div><dt>Last successful sync</dt><dd>{state?.sync.lastSuccess ?? 'Not yet synced by this app'}</dd></div><div><dt>Managed processes</dt><dd>None</dd></div><div><dt>Conflict handling</dt><dd>Preserve local and remote versions</dd></div><div><dt>Engine</dt><dd>HQ Cloud {state?.runtime.version ?? '6.16.35'}</dd></div></dl><p className="muted">Existing CLI or tray-app sync continues independently. This app does not take over those processes.</p></section>
+        <header className="page-heading"><h1>Sync</h1><p className="lead">Your latest work, wherever you need it.</p></header>
+        <section className="status-view"><div className="status-orb"><Cloud size={30} strokeWidth={1.5}/></div><h2>{!workspace ? 'Choose a workspace to get started' : !connected ? 'Bring your work together' : state?.sync.message}</h2><p className="lead">{!workspace ? 'Set up HQ or choose your existing folder first.' : !connected ? 'Sign in to keep your files up to date across your devices.' : 'Your files stay on this computer, even when you’re offline.'}</p>
+          {workspace && connected && <div className="sync-choice">
+            {state?.syncScopes?.length ? <><label htmlFor="sync-workspace">Keep these files on this computer</label><select id="sync-workspace" className="hq-select" value={state.selectedSyncScope ?? ''} disabled={!enabled} onChange={event => void run({ action: 'select-sync-scope', scopeId: event.target.value }, 'Choosing your shared work')}><option value="" disabled>Choose your work</option>{state.syncScopes.map(scope => <option key={scope.id} value={scope.id}>{scope.label}</option>)}</select></> : <Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'load-sync-scopes' }, 'Finding your shared work')}>Choose your work</Button>}
+          </div>}
+          <div className="welcome-actions">{!workspace ? <Button onClick={() => setSection('Workspace')}>Go to workspace<ArrowRight size={16}/></Button> : !connected || state?.sync.phase === 'not-connected' ? <Button disabled={!enabled} onClick={() => void run({ action: 'sign-in' }, 'Opening sign-in')}>Sign in<ArrowUpRight size={15}/></Button> : <Button disabled={!enabled || !state?.selectedSyncScope} onClick={() => void run({ action: ['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'pause-sync' : 'resume-sync' }, 'Updating sync')}>{['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'Pause sync' : state?.sync.phase === 'paused' ? 'Start syncing' : 'Try sync again'}</Button>}</div>
+          <dl className="sync-details"><div><dt>Workspace</dt><dd>{workspace?.name ?? 'Not selected'}</dd></div><div><dt>Last synced</dt><dd>{state?.sync.lastSuccess ? new Date(state.sync.lastSuccess).toLocaleString() : 'Not yet'}</dd></div></dl>
+        </section>
       </>}
       {section === 'Tools' && <>
-        <p className="lead muted">Open the tools already installed on your computer.</p>
-        {!workspace && <p className="notice">Attach and select a workspace in Setup first.</p>}
-        <section className="panel tool-list">{[{ title: 'Files', description: 'Open the selected workspace in your file manager.', action: 'open-folder', icon: FolderOpen }, { title: 'Terminal', description: 'Start your default terminal in the workspace folder.', action: 'open-terminal', icon: Terminal }, { title: 'VS Code', description: 'Open the workspace in an installed VS Code.', action: 'open-editor', icon: Code }].map(({ title, description, action, icon: Icon }) => <div className="tool-row" key={title}><Icon size={20}/><div><h2>{title}</h2><p className="muted">{description}</p></div><Button variant="outline" disabled={!enabled || !workspace} onClick={() => void run({ action: action as CompanionAction['action'], workspaceId: workspace!.id }, `Opening ${title}`)}>Open {title}<ArrowUpRight size={14}/></Button></div>)}</section>
+        <header className="page-heading"><h1>Tools</h1><p className="lead">A few shortcuts for your workspace.</p></header>
+        {!workspace && <p className="notice">Choose your workspace first to use these shortcuts.</p>}
+        <section>{[{ title: 'Files', description: 'Browse and organize your work.', action: 'open-folder' as const, icon: FolderOpen }, { title: 'Terminal', description: 'For when you want to work with commands.', action: 'open-terminal' as const, icon: Terminal }].map(({ title, description, action, icon: Icon }) => <div className="tool-row" key={title}><Icon size={22}/><div><h2>{title}</h2><p>{description}</p></div><Button variant="ghost" disabled={!enabled || !workspace} onClick={() => void run({ action, workspaceId: workspace!.id }, `Opening ${title.toLowerCase()}`)}>Open {title.toLowerCase()}<ArrowUpRight size={15}/></Button></div>)}</section>
       </>}
       {section === 'Settings' && <>
-        <p className="lead muted">Local preferences and diagnostics for this installation.</p>
-        <section className="panel"><div className="panel-heading"><h2><ShieldCheck size={16}/>Diagnostics</h2><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'diagnostics' }, 'Checking desktop services')}><RefreshCw size={14}/>Refresh checks</Button></div><p className="muted">The report below excludes workspace paths, account details, credentials, and environment variables. Nothing is uploaded.</p><ul className="diagnostic-list">{state?.diagnostics.map((check) => <li key={check.name}><span className="status-label" data-state={check.state}>{check.state === 'ok' ? 'Ready' : check.state === 'attention' ? 'Needs attention' : 'Unavailable'}</span><div><h2>{check.name}</h2><p className="muted">{check.detail}</p></div></li>)}</ul><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'export-diagnostics' }, 'Exporting diagnostics')}><FileDown size={14}/>Export this report</Button></section>
-        <section className="panel"><h2>App behavior</h2><p className="muted">Closing the window quits the app. Background tray sync, automatic startup, and updates are not enabled in this local build.</p><p className="muted">Uninstalling the app leaves your HQ workspace folders intact.</p></section>
+        <header className="page-heading"><h1>Settings</h1><p className="lead">Make HQ feel at home.</p></header>
+        <section className="content-section"><ThemeControl /></section>
+        <section className="setting-row"><div><h2>Your account</h2><p>{connected ? state?.account.label : 'You’re not signed in on this computer.'}</p></div><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: connected ? 'sign-out' : 'sign-in' }, connected ? 'Signing out' : 'Opening sign-in')}>{connected ? 'Sign out' : 'Sign in'}</Button></section>
+        <section className="setting-row"><div><h2>Keep HQ running</h2><p>Continue syncing after you close this window.</p></div><input type="checkbox" aria-label="Keep HQ running" checked={state?.preferences.closeToTray ?? false} disabled={!enabled} onChange={event => void run({ action: 'set-preference', preference: 'closeToTray', enabled: event.target.checked }, 'Saving your preference')}/></section>
+        <section className="setting-row"><div><h2>Open HQ when I sign in</h2><p>Start HQ when you sign in to this computer.</p></div><input type="checkbox" aria-label="Open HQ when I sign in" checked={state?.preferences.launchAtLogin ?? false} disabled={!enabled} onChange={event => void run({ action: 'set-preference', preference: 'launchAtLogin', enabled: event.target.checked }, 'Saving your preference')}/></section>
+        <section className="setting-row"><div><h2>Need a hand?</h2><p>Save a private report to share when asking for help.</p></div><Button variant="ghost" disabled={!enabled} onClick={() => void run({ action: 'export-diagnostics' }, 'Saving your support report')}><FileDown size={16}/>Save support report</Button></section>
+        <details className="support-details"><summary>What’s included in the report?</summary><p>The report lists the app version and checks that help find a problem. It does not include your files, folder locations, account details, or passwords. Nothing is sent automatically.</p></details>
+        <p className="about">HQ · {state?.version ?? 'Desktop'}</p>
       </>}
-      <Dialog open={!!removeId} onOpenChange={(open) => { if (!open) setRemoveId(undefined); }}><DialogContent><DialogTitle>Remove workspace from this app?</DialogTitle><DialogDescription>Your HQ folder and all its files will stay on disk. You can attach it again later.</DialogDescription><div className="dialog-actions"><Button variant="outline" onClick={() => setRemoveId(undefined)}>Cancel</Button><Button onClick={() => { const id = removeId!; setRemoveId(undefined); void run({ action: 'remove-workspace', workspaceId: id }, 'Removing workspace from app'); }}>Remove from app</Button></div></DialogContent></Dialog>
+      <Dialog open={!!removeId} onOpenChange={(open) => { if (!open) setRemoveId(undefined); }}><DialogContent><DialogTitle>Remove this workspace?</DialogTitle><DialogDescription>Your folder and its files will stay on this computer. You can add it again anytime.</DialogDescription><div className="dialog-actions"><Button variant="outline" onClick={() => setRemoveId(undefined)}>Keep workspace</Button><Button onClick={() => { const id = removeId!; setRemoveId(undefined); void run({ action: 'remove-workspace', workspaceId: id }, 'Removing workspace'); }}>Remove from app</Button></div></DialogContent></Dialog>
     </main>
   </div>;
 }

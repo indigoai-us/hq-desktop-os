@@ -17,7 +17,7 @@ test.describe('US-004 production renderer excludes the development gallery', () 
 
   test('serves the application shell at the root, not the gallery', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your desktop companion');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your work, right here.');
     await expect(page.getByTestId('dev-component-gallery')).toHaveCount(0);
   });
 

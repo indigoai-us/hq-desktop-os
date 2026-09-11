@@ -12,7 +12,7 @@ export async function createCompanionClient(): Promise<CompanionClient> {
   return {
     simulated: false,
     async request(action) {
-      if (!window.hqDesktop) throw new Error('Native platform unavailable. Open the installed desktop app to manage a workspace.');
+      if (!window.hqDesktop) throw new Error('Open HQ on your computer to get started.');
       const result = await window.hqDesktop.invoke(IPC_CHANNELS.companion, action) as PlatformResult<CompanionSnapshot>;
       if (!result.ok) throw new Error(result.error.message);
       return result.value;

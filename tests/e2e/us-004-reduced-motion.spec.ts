@@ -76,8 +76,8 @@ test.describe('US-004 motion honours the reduced-motion preference', () => {
     const measured = await motion(page);
 
     // The fill moves, and it moves for exactly as long as the token says.
-    expect(measured.token).toBe('220ms');
-    expect(measured.transitionDurationSeconds).toBeCloseTo(0.22, 3);
+    expect(measured.token).toBe('180ms');
+    expect(measured.transitionDurationSeconds).toBeCloseTo(0.18, 3);
     expect(measured.transitionProperty).toContain('transform');
     // Decelerating curve, no overshoot.
     expect(measured.transitionTimingFunction).toBe('cubic-bezier(0.25, 1, 0.5, 1)');
@@ -101,7 +101,7 @@ test.describe('US-004 motion honours the reduced-motion preference', () => {
 
     // The token is untouched — the media query wins the cascade instead, so
     // this is a real preference override and not a retimed token.
-    expect(measured.token).toBe('220ms');
+    expect(measured.token).toBe('180ms');
     expect(measured.transitionDurationSeconds).toBeLessThan(0.001);
     expect(measured.closeButtonDurationSeconds).toBeLessThan(0.001);
     // Same end state: reduced motion removes movement, never information.

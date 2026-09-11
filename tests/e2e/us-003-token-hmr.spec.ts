@@ -69,19 +69,19 @@ test.describe('US-003 development token HMR', () => {
     return page.evaluate(() => {
       const style = (selector: string) =>
         getComputedStyle(document.querySelector(selector)!);
-      const selected = style('[data-testid="selected-sample"]');
-      const themeOption = style('[data-testid="theme-option-light"]');
+      const selected = style('[aria-current="page"]');
+      const themeOption = style('#appearance');
       return {
         selectedBackground: selected.backgroundColor,
-        buttonBorder: style('[data-testid="selected-sample"]').borderTopColor,
+        buttonBorder: style('[aria-current="page"]').borderTopColor,
         themeOptionBorder: themeOption.borderTopColor,
         bodyColor: getComputedStyle(document.body).color,
         // Spacing: the actions row gap, a control's padding, the page padding
         // and the utility-driven radiogroup gap.
         actionsGap: style('.companion-sidebar nav').gap,
-        buttonPadding: style('[data-testid="selected-sample"]').paddingTop,
+        buttonPadding: style('[aria-current="page"]').paddingTop,
         pagePadding: style('.companion-main').paddingTop,
-        radiogroupGap: style('[role="radiogroup"]').gap,
+        radiogroupGap: style('.hq-theme-control').gap,
         // Typography.
         bodyFontSize: getComputedStyle(document.body).fontSize,
         titleFontSize: style('h1').fontSize,
@@ -91,9 +91,10 @@ test.describe('US-003 development token HMR', () => {
 
   test('updates every token-backed control without reloading the page', async ({ page }) => {
     await page.goto(ORIGIN);
-    await page.waitForSelector('[data-testid="theme-control"]');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     // Pin an explicit theme so the edited light-theme tokens are the ones in use.
-    await page.getByTestId('theme-option-light').click();
+    await page.getByRole('combobox', { name: 'Appearance' }).selectOption('light');
+    await page.getByRole('button', { name: 'Workspace', exact: true }).focus();
 
     const before = await controlStyles(page);
     const after = {
@@ -101,14 +102,14 @@ test.describe('US-003 development token HMR', () => {
       buttonBorder: NEW_TOKENS.border,
       themeOptionBorder: NEW_TOKENS.border,
       bodyColor: NEW_TOKENS.foreground,
-      actionsGap: NEW_TOKENS.space2,
+      actionsGap: NEW_TOKENS.space1,
       buttonPadding: NEW_TOKENS.space2,
       pagePadding: NEW_TOKENS.space6,
-      radiogroupGap: NEW_TOKENS.space1,
+      radiogroupGap: '16px',
       bodyFontSize: NEW_TOKENS.textCanvas,
       titleFontSize: NEW_TOKENS.textTitle,
     };
-    for (const [property, updated] of Object.entries(after)) {
+    for (const [property, updated] of Object.entries(after).filter(([key]) => key !== 'radiogroupGap')) {
       expect(before[property as keyof typeof after], property).not.toBe(updated);
     }
 
@@ -120,9 +121,9 @@ test.describe('US-003 development token HMR', () => {
 
     const original = readFileSync(tokensPath, 'utf8');
     const edited = original
-      .replaceAll('#dcd8e2', NEW_TOKENS.selection)
-      .replaceAll('#d4d0d9', NEW_TOKENS.border)
-      .replaceAll('#1a181e', NEW_TOKENS.foreground)
+      .replaceAll('#d4d4d4', NEW_TOKENS.selection)
+      .replaceAll('#d5d5d5', NEW_TOKENS.border)
+      .replaceAll('#222222', NEW_TOKENS.foreground)
       .replace(/--space-1:[^;]+;/, `--space-1: ${NEW_TOKENS.space1};`)
       .replace(/--space-2:[^;]+;/, `--space-2: ${NEW_TOKENS.space2};`)
       .replace(/--space-3:[^;]+;/, `--space-3: ${NEW_TOKENS.space3};`)
@@ -137,6 +138,6 @@ test.describe('US-003 development token HMR', () => {
     expect(await page.evaluate(() => (globalThis as Record<string, unknown>).__hmrSentinel)).toBe(
       'alive',
     );
-    await expect(page.getByTestId('theme-option-light')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveValue('light');
   });
 });

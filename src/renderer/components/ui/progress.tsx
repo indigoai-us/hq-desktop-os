@@ -42,7 +42,7 @@ function Progress({
       aria-valuemin={0}
       aria-valuemax={scale}
       aria-valuenow={clamped ?? undefined}
-      className={cn('relative h-2 w-full overflow-hidden rounded-none bg-muted', className)}
+      className={cn('relative h-2 w-full overflow-hidden rounded-md bg-muted', className)}
       {...props}
     >
       <ProgressPrimitive.Indicator

@@ -37,7 +37,7 @@ test.describe('US-002 window chrome', () => {
       };
     });
 
-    expect(frame.title).toBe('HQ Desktop OS');
+    expect(frame.title).toBe('HQ');
     // A frameless window has no chrome at all; a decorated one always costs
     // height for the titlebar the window manager draws.
     expect(frame.chromeHeight, 'the OS must be drawing a window frame').toBeGreaterThan(0);
@@ -105,8 +105,8 @@ test.describe('US-002 window chrome', () => {
     // Relaunch and Quit live in a semantic application menu, not in a second
     // window-chrome bar inside the page.
     expect(menu!.roles).toContain('quit');
-    expect(menu!.labels).toContain('Relaunch');
-    expect(menu!.labels.some((label) => label.includes('Documentation'))).toBe(true);
+    expect(menu!.labels).toContain('Restart HQ');
+    expect(menu!.labels.some((label) => label.includes('Documentation'))).toBe(false);
     // The menu bar must not repeat the app name the titlebar already shows.
     expect(menu!.top).not.toContain('HQ Desktop OS');
   });
@@ -125,7 +125,7 @@ test.describe('US-002 window chrome', () => {
 
     expect(await devToolsOpen()).toBe(false);
     // Reload accelerators must not have navigated the window away either.
-    await expect(appWindow.locator('h1')).toHaveText('Your desktop companion');
+    await expect(appWindow.locator('h1')).toHaveText('Your work, right here.');
   });
 
   test('renders no second app title and no second set of window controls', async () => {
@@ -160,13 +160,10 @@ test.describe('US-002 window chrome', () => {
     expect(duplicates.controlTestIds).toEqual([]);
   });
 
-  test('names its remaining region honestly and announces the external link', async () => {
-    const region = appWindow.getByRole('region', { name: 'Application actions' });
-    await expect(region).toBeVisible();
-    await expect(region.getByRole('button')).toHaveCount(2);
-
-    const docs = appWindow.getByTestId('open-docs');
-    await expect(docs).toHaveAccessibleName(/in your browser/i);
-    await expect(appWindow.getByTestId('check-native')).toHaveAccessibleName('Check native connection');
+  test('offers clearly named setup actions without internal controls', async () => {
+    await expect(appWindow.getByRole('button', { name: 'Set up HQ', exact: true })).toBeEnabled();
+    await expect(appWindow.getByRole('button', { name: 'I already have an HQ folder' })).toBeEnabled();
+    await expect(appWindow.getByTestId('open-docs')).toHaveCount(0);
+    await expect(appWindow.getByTestId('check-native')).toHaveCount(0);
   });
 });

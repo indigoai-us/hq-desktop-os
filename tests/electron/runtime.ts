@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
@@ -32,14 +34,16 @@ export function productionPreloadPath(): string {
 }
 
 export async function launchProductionApp(): Promise<{ app: ElectronApplication; window: Page }> {
+  const profile = await mkdtemp(join(tmpdir(), 'hq-native-profile-'));
   const app = await electron.launch({
     executablePath: productionRuntimePath(),
-    args: [],
+    args: [`--user-data-dir=${profile}`],
     timeout: 120_000,
   });
+  app.once('close', () => { void rm(profile, { recursive: true, force: true }).catch(error => console.error('Native test profile cleanup failed', error instanceof Error ? error.name : 'unknown')); });
   const window = await app.firstWindow();
   await window.waitForLoadState('domcontentloaded');
-  await window.waitForSelector('[data-testid="platform-availability"]');
+  await window.waitForSelector('.companion-shell');
   return { app, window };
 }
 

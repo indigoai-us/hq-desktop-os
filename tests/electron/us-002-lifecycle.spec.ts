@@ -67,11 +67,9 @@ test.describe('US-002 native window lifecycle', () => {
 
     const second = await launchProductionApp();
     try {
-      await expect(second.window.locator('h1')).toHaveText('Your desktop companion');
-      await expect(second.window.getByTestId('platform-availability')).toHaveText('Native bridge connected');
-      await expect(second.window.getByTestId('platform-last-result')).toHaveText('No native action yet');
-      await second.window.getByTestId('check-native').click();
-      await expect(second.window.getByTestId('platform-last-result')).toHaveText('Check native → ok');
+      await expect(second.window.locator('h1')).toHaveText('Your work, right here.');
+      expect(await invoke(second.window, 'hq:platform:getInfo')).toMatchObject({ ok: true, value: { electron: true } });
+      await expect(second.window.getByRole('button', { name: 'Set up HQ', exact: true })).toBeEnabled();
     } finally {
       await second.app.close();
     }

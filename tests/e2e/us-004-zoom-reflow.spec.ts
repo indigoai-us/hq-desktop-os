@@ -250,6 +250,9 @@ async function readability(page: Page, subjects: readonly string[]): Promise<Rea
  * interaction and the one the component answers.
  */
 async function revealTooltip(page: Page): Promise<void> {
+  // Scrolling closes Radix's tooltip without blurring the trigger. Re-enter it
+  // from the keyboard so a second reveal is an actual focus transition.
+  if (await page.getByTestId('gallery-tooltip-trigger').evaluate(el => el === document.activeElement)) await page.keyboard.press('Shift+Tab');
   await tabToTestId(page, 'gallery-tooltip-trigger');
   await expect(page.getByRole('tooltip')).toBeVisible();
 }

@@ -1,40 +1,38 @@
 # Local Debian test build
 
-This is an early native Linux test build, not the completed HQ Desktop OS v1.
+This is a development build of HQ for Linux. It is not a completed public release.
 
-## Available
+## Included
 
-- Setup, Sync, Tools, and Settings navigation with persistent System, Light, and Dark themes.
-- Native folder selection for an existing HQ workspace containing `core` and `companies`.
-- A persistent workspace registry that resolves symlink aliases and preserves a stable installation ID.
-- Workspace removal from the app without deleting its files.
-- Launching the file manager, installed default terminal, and installed VS Code in the selected workspace.
-- Local diagnostics and an explicit JSON export. The report excludes workspace paths, account identity, credentials, environment variables, and installation ID. It is not uploaded.
-- Electron 40.0.0 with Node 24.11.1 and the public HQ Cloud 6.16.35 package bundled in the app. No global Node or HQ CLI is required to launch it.
-- One native OS titlebar. The renderer adds no duplicate window controls.
+- HQ branding, neutral light and dark themes, one Appearance dropdown, and one native title bar.
+- Guided fresh setup with a pinned HQ template, private Node/HQ CLI/search tools, checksum-verified downloads, cancellation, and recovery. Git is an installer dependency.
+- Existing-folder selection and a persistent workspace list. Removing a folder from the app preserves its files.
+- Browser sign-in with PKCE, signed identity verification, OS-encrypted token storage, refresh and sign-out. Linux requires an available secure keyring; plaintext storage is refused.
+- Account-scoped work selection, shared HQ Cloud sync, pause/retry, saved choices, automatic reconnection, and truthful transfer status. Journals are isolated by account and folder; a shared operation gate protects the folder from concurrent CLI writes.
+- Files and terminal shortcuts. The app's terminal can find its privately installed HQ tools.
+- Optional background operation and startup at sign-in, plus a local support-report export that excludes account details, paths and credentials.
 
-## Still unfinished
+## Verification and remaining work
 
-Account sign-in, token persistence, membership selection, fresh workspace creation, managed sync/watch, conflict resolution, WSL integration, tray/background sync, login startup, updates, and server health reporting are not implemented in this build. The app does not manage an existing CLI or tray sync process. Its Sync page reports that it is not connected.
+Real isolated Linux setup has downloaded and verified the template and all required managed tools. The actual Electron Node runtime has loaded the shared sync engine and passed private-IPC, competing-writer exclusion and cancellation checks without credentials or cloud writes. Unit and browser tests cover the implemented boundaries and recovery screens.
 
-Windows installers, real Linux/Windows accessibility and 200% browser zoom, live cross-client sync, release signing, health attribution, and CI workflow verification remain acceptance work. Browser preview checks and unit tests do not establish native acceptance.
+The packaged runtime passed 65 native Linux checks on an isolated display, including frame, lifecycle, navigation and security. Browser sign-in, OS keyring behavior, authenticated cross-client transfers, desktop tray behavior, native accessibility and physical window manipulation still need acceptance on the user’s graphical desktop. Browser fixtures do not establish these results.
 
-## Install and test
+Conflict resolution, Windows/WSL setup, verified updates, server health attribution, public release signing and CI workflows remain unfinished. The desktop app does not take over or terminate existing CLI sync processes.
 
-Install the `.deb` with your system package manager, then launch **HQ Desktop OS** from the application menu. The executable is `hq-desktop-os`.
+## Install and try
 
-1. In Setup, attach your existing HQ folder. A folder without `core` and `companies` should produce a clear error.
-2. Quit and reopen the app. The workspace selection should persist.
-3. In Tools, open Files, Terminal, and VS Code. Missing tools should report an error without installing anything.
-4. In Settings, inspect and export diagnostics. Check the report contains no workspace path or account data.
-5. Remove a workspace from the app and confirm its files remain on disk.
-6. Check the native titlebar, resizing, keyboard focus, and themes on your Linux desktop.
+Install the `.deb` with your system package manager and launch **HQ Desktop OS** from the application menu. The executable is `hq-desktop-os`.
 
-Closing the window quits this build. Uninstalling the app preserves workspace folders and its per-user registry; it does not remove your HQ data.
+1. Choose **Set up HQ**, or select your existing HQ folder.
+2. Sign in through your browser. In **Sync**, choose your personal work or shared workspace, then start syncing.
+3. Pause sync before switching workspaces. Sign-out stops the app's own sync process.
+4. Try Appearance, file shortcuts, and the optional background setting in Settings.
+5. Quit and reopen the app to check saved folders and account reconnection. Your sync choice is remembered. Previously running sync reconnects after account and membership checks; paused sync stays paused.
+
+Closing the window quits unless background operation is enabled and a tray is available. Uninstalling the application preserves your HQ files and user data.
 
 ## Rebuild
-
-Use Node 22.12 or newer within the supported range and pnpm 10.28.2:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -45,4 +43,4 @@ pnpm test:e2e
 pnpm package:deb
 ```
 
-The package is written under `release/`. No artifacts are automatically published.
+The package is written under `release/`. Artifacts are not published automatically.

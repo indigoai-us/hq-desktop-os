@@ -44,7 +44,7 @@ export class WorkspaceRegistry {
         try { return (await stat(join(root, name))).isDirectory(); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
       }));
-      if (!markers.every(Boolean)) throw new Error('Choose an existing HQ folder containing both core and companies. Fresh HQ creation is not available in this test build.');
+      if (!markers.every(Boolean)) throw new Error('This folder does not look like an HQ workspace. Choose your HQ folder, or use Set up HQ to create one.');
       const identity = (value: string) => this.platform === 'win32' ? value.toLowerCase() : value;
       const duplicate = this.state.workspaces.find((w) => identity(w.root) === identity(root));
       if (duplicate) { await this.persist({ ...this.state, activeWorkspaceId: duplicate.id }); return duplicate; }

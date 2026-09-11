@@ -133,21 +133,19 @@ test.describe('US-002 validated IPC senders and payloads', () => {
       'app://hq-desktop-os/index.html',
     );
     const bare = await openedPromise;
-    await bare.waitForSelector('[data-testid="platform-unavailable"]');
+    await bare.getByRole('alert').waitFor();
 
     expect(await bare.evaluate(() => typeof (window as unknown as { hqDesktop?: unknown }).hqDesktop)).toBe('undefined');
-    await expect(bare.getByTestId('platform-availability')).toHaveText('Native bridge unavailable');
-    await expect(bare.getByTestId('open-docs')).toBeDisabled();
+    await expect(bare.getByRole('alert')).toContainText('We could not open your workspace');
+    await expect(bare.getByRole('button', { name: 'Set up HQ', exact: true })).toBeDisabled();
     // Window controls are the OS titlebar's, so there is nothing in the page to
     // disable — and nothing that could quietly come back offering a fake one.
     for (const removed of ['window-minimize', 'window-maximize', 'window-close', 'app-relaunch']) {
       await expect(bare.getByTestId(removed)).toHaveCount(0);
     }
 
-    await bare.getByTestId('check-native').click();
-    await expect(bare.getByTestId('platform-last-result')).toHaveText(
-      'Check native → unavailable: Native platform bridge is unavailable.',
-    );
+    await bare.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(bare.getByRole('alert')).toContainText('Open HQ on your computer');
     expect(
       await bare.evaluate(() =>
         ['require', 'process', 'module', 'Buffer'].filter(

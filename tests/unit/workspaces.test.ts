@@ -31,7 +31,7 @@ describe('workspace ownership', () => {
   });
   it('rejects non-HQ folders and unknown workspace IDs', async () => {
     const { path, registry } = await fixture();
-    await expect(registry.attach(path)).rejects.toThrow('existing HQ');
+    await expect(registry.attach(path)).rejects.toThrow('does not look like an HQ workspace');
     await expect(registry.select('unknown')).rejects.toThrow('no longer registered');
     expect(registry.snapshot.workspaces).toEqual([]);
   });

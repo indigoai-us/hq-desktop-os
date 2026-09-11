@@ -65,13 +65,13 @@ test.describe('US-002 external handoff to the host', () => {
 
     app = await electron.launch({
       executablePath: productionRuntimePath(),
-      args: [],
+      args: [`--user-data-dir=${join(handoffDir, 'profile')}`],
       timeout: 120_000,
       env: { ...process.env, PATH: `${handoffDir}:${process.env.PATH ?? ''}` } as Record<string, string>,
     });
     appWindow = await app.firstWindow();
     await appWindow.waitForLoadState('domcontentloaded');
-    await appWindow.waitForSelector('[data-testid="platform-availability"]');
+    await appWindow.waitForSelector('.companion-shell');
   });
 
   test.afterAll(async () => {
@@ -88,13 +88,11 @@ test.describe('US-002 external handoff to the host', () => {
     }).toEqual([REVIEWED]);
   });
 
-  test('hands over the docs link when the user clicks it in the app', async () => {
+  test('opening settings does not launch a removed documentation link', async () => {
     const before = await recordedHandoffs();
-    await appWindow.getByTestId('open-docs').click();
-    await expect(appWindow.getByTestId('platform-last-result')).toHaveText('Open docs → ok');
-    await expect.poll(async () => (await recordedHandoffs()).slice(before.length), {
-      timeout: 20_000,
-    }).toEqual([REVIEWED]);
+    await appWindow.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(appWindow.getByTestId('open-docs')).toHaveCount(0);
+    expect(await recordedHandoffs()).toEqual(before);
   });
 
   test('never reaches the operating system for a refused target', async () => {

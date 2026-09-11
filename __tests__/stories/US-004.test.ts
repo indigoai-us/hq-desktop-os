@@ -83,9 +83,9 @@ describe('US-004 accessible shadcn component foundation', () => {
       expect(existsSync(join(root, file)), file).toBe(true);
       const source = read(file);
       expect(source).toContain("from '@/lib/utils'");
-      expect(source).not.toMatch(/rounded-(?:md|lg|full|sm)/);
+      expect(source).not.toMatch(/rounded-none/);
       expect(source).not.toMatch(/font-semibold|font-bold|font-\[7/);
-      expect(source).toMatch(/rounded-none|text-hq-canvas|text-hq-title/);
+      expect(source).toMatch(/rounded-md|text-hq-canvas|text-hq-title/);
     }
 
     // Radix-backed overlays and controls (input is a native element styled via tokens).
@@ -146,7 +146,7 @@ describe('US-004 accessible shadcn component foundation', () => {
     expect(main).toContain('data-focus-shell');
     // Application fallback shell stays; no redundant window chrome.
     expect(main).not.toMatch(/platform\.windowMinimize|platform\.windowMaximize|platform\.windowClose/);
-    expect(main).toContain('Your desktop companion');
+    expect(main).toContain('Your work, right here.');
 
     const gallery = read('src/renderer/dev/components.tsx');
     expect(gallery).toContain('gallery-button-normal');

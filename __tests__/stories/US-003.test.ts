@@ -195,8 +195,8 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
       '.hq-page': ['var(--space-6)'],
       '.hq-actions': ['var(--space-2)', 'var(--space-5)'],
       '.hq-button': ['var(--space-2)', 'var(--space-3)'],
-      '.hq-theme-control': ['var(--space-1)', 'var(--space-4)'],
-      '.hq-theme-option': ['var(--space-1)', 'var(--space-2)', 'var(--space-3)'],
+      '.hq-theme-control': ['var(--space-4)'],
+      '.hq-theme-control select, .hq-select': ['var(--space-2)', 'var(--space-3)'],
     };
     for (const [selector, expected] of Object.entries(components)) {
       const body = ruleBody(css, selector);
@@ -227,9 +227,9 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     const styles = read('src/renderer/styles.css');
     const tokens = read('src/renderer/tokens.css');
 
-    // Square corners on controls.
-    expect(styles).toMatch(/border-radius:\s*0/);
-    expect(tokens).toMatch(/--radius:\s*0/);
+    // Updated user direction uses HQ V4 control radii.
+    expect(styles).toMatch(/border-radius:\s*var\(--radius\)/);
+    expect(tokens).toMatch(/--radius:\s*6px/);
 
     // Weight cap: component rules use 400/500 only.
     const weights = [...styles.matchAll(/font-weight:\s*(\d+)/g)].map((m) => Number(m[1]));
@@ -247,9 +247,9 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
       expect(styles).toContain(`var(--status-${tone})`);
     }
 
-    // Stroke icons: theme control SVGs fill none / stroke currentColor.
-    expect(styles).toContain('stroke: currentColor');
-    expect(styles).toContain('fill: none');
+    // Appearance is one labeled native select.
+    expect(read('src/renderer/theme.tsx')).toContain('<select id="appearance"');
+    expect(read('src/renderer/theme.tsx')).not.toContain('role="radio"');
 
     const main = read('src/renderer/main.tsx') + read('src/renderer/companion-app.tsx');
     expect(main).toContain('data-selected={section === name}');

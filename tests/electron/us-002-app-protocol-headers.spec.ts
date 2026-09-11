@@ -107,7 +107,7 @@ test.describe('US-002 app:// response headers', () => {
     // The top-level document renders its heading; a frame of the same document
     // must not, because frame-ancestors 'none' arrives on the response.
     expect(await appWindow.evaluate(() => document.querySelector('h1')?.textContent)).toBe(
-      'Your desktop companion',
+      'Your work, right here.',
     );
 
     const framed = await appWindow.evaluate(async (target) => {
