@@ -10,16 +10,28 @@ import { hqWebFlowUrl, type HqWebDestination } from '../shared/hq-web.js';
 import { AccountSession } from './auth.js';
 import { CredentialStore, secureStorageAvailable } from './credential-store.js';
 import { PreferenceStore } from './preferences.js';
-import { applyLaunchAtLogin, launchAtLoginSupported } from './autostart.js';
+import { applyLaunchAtLogin, isWslEnvironment, launchAtLoginSupported } from './autostart.js';
 import { SyncSelectionStore } from './sync-selection.js';
 import { SyncSupervisor } from './sync-supervisor.js';
 import { pausedSync } from './sync-state.js';
-import { ALL_SYNC_SCOPE, loadScopes, ensurePersonalStorage, WorkspaceAccounts, type SyncScope } from './sync-scopes.js';
+import { ALL_SYNC_SCOPE, loadScopes, ensurePersonalStorage, VAULT_URL, WorkspaceAccounts, type SyncScope } from './sync-scopes.js';
 import { WorkspaceRegistry } from './workspaces.js';
 import { HealthCommandLedger } from './health/commands.js';
+import { buildCompanionHeartbeatFacts } from './health/facts.js';
+import {
+  cachedLocalFilesOverview,
+  defaultSharedSyncLogPath,
+  type LocalFilesOverviewCache,
+} from './health/local-files.js';
 import { runHealthProbes } from './health/probes.js';
 import { HealthReporter } from './health/reporter.js';
-import { HealthStateStore } from './health/state.js';
+import { HealthHeartbeatScheduler } from './health/scheduler.js';
+import { healthEnvironmentKey, HealthStateStore } from './health/state.js';
+import {
+  DisabledHealthTransport,
+  HttpHealthTransport,
+  isClientHealthReportingEnabled,
+} from './health/transport.js';
 import { companionHealthFromResults, unavailableHealth } from './health/view.js';
 import type { CompanionHealth } from '../shared/health.js';
 import {
@@ -60,13 +72,27 @@ export class CompanionService {
   private restoreCanceled = false;
   private restoreJob?: Promise<void>;
   private readonly selection = new SyncSelectionStore(app.getPath('userData'));
-  private readonly healthState = new HealthStateStore(app.getPath('userData'));
+  private readonly healthState = new HealthStateStore(app.getPath('userData'), {
+    environment: healthEnvironmentKey(isWslEnvironment(process.env)),
+  });
   private readonly healthCommands = new HealthCommandLedger(app.getPath('userData'));
   private readonly healthReporter = new HealthReporter({
     state: this.healthState,
-    reportingEnabled: false,
+    // Live POSTs stay off unless HQ_CLIENT_HEALTH_REPORTING=1 (still needs auth).
+    reportingEnabled: isClientHealthReportingEnabled(),
+    transport: isClientHealthReportingEnabled()
+      ? new HttpHealthTransport({ baseUrl: VAULT_URL })
+      : new DisabledHealthTransport(),
     appVersion: app.getVersion(),
   });
+  private readonly healthScheduler = new HealthHeartbeatScheduler({
+    reporter: this.healthReporter,
+    facts: () => this.currentHeartbeatFacts(),
+  });
+  private healthLocalFilesCache: LocalFilesOverviewCache | null = null;
+  private healthSyncStateDir: string | null = null;
+  private healthLastRecordedSuccess: string | null = null;
+  private healthLastRecordedFailureAt: string | null = null;
   private health: CompanionHealth = unavailableHealth();
   private healthRunning = false;
   private diagnosticsPreview: { generatedAt: string; text: string } | null = null;
@@ -160,12 +186,15 @@ export class CompanionService {
     const scopeKey = createHash('sha256').update(JSON.stringify([root, this.account.identity!.sub])).digest('hex');
     env.HQ_STATE_DIR = join(app.getPath('userData'), 'sync-state', scopeKey);
     env.HQ_DESKTOP_SHARED_STATE_DIR = process.env.HQ_STATE_DIR || join(app.getPath('home'), '.hq');
+    this.healthSyncStateDir = env.HQ_STATE_DIR;
     // The child holds a separate shared-location exclusive gate while using private journals.
     if (process.platform === 'win32') { env.SystemRoot = process.env.SystemRoot; env.TEMP = app.getPath('temp'); }
     if (this.closing || (restoring && this.restoreCanceled)) return;
     const onConflict = this.conflictStrategy;
     this.conflictStrategy = 'abort';
+    await this.healthState.recordSyncAttempt();
     this.sync.start(root, this.selectedScope, env, onConflict);
+    this.healthScheduler.notifyHealthChanged();
     try { await this.saveSyncChoice(true); }
     catch (error) { await this.sync.stop(); throw error; }
   }
@@ -207,11 +236,13 @@ export class CompanionService {
       // Sign-in finished; clear the in-flight gate so startSync may run.
       this.loginAbort = undefined;
       try {
+        await this.refreshHealthReportingGate();
         // Mirror hq-desktop-app: memberships load from vault immediately after
         // Cognito succeeds, then the runner can fan out across them.
         await this.prepareScopesAfterAuth();
         await this.saveSyncChoice(false);
         this.sync.state = { ...pausedSync(), message: this.registry.snapshot.activeWorkspaceId ? 'Ready when you are' : 'Choose a workspace to get started' };
+        this.healthScheduler.notifyHealthChanged();
         if (this.registry.snapshot.activeWorkspaceId && this.selectedScope && !this.closing && !signal.aborted) {
           await this.startSync();
         }
@@ -237,6 +268,8 @@ export class CompanionService {
     this.awaitingMembershipRefresh = false;
     this.setupAbort?.abort();
     this.loginAbort?.abort();
+    this.healthScheduler.stop();
+    this.healthReporter.setReportingEnabled(false, null);
     this.healthReporter.dispose();
     await this.restoreJob;
     await this.membershipRefreshJob;
@@ -292,7 +325,60 @@ export class CompanionService {
     await this.healthState.load();
     await this.healthCommands.load();
     await this.healthState.ensureInstallationId(this.registry.snapshot.installationId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || undefined);
-    this.restoreJob = this.account.restore().then(() => this.restoreSync()).catch((error: unknown) => { console.error('Saved account could not be restored', error instanceof Error ? error.name : 'unknown'); if (this.account.identity) this.sync.state = { ...this.sync.state, phase: 'error', message: 'Sync could not reconnect. Check your connection and try again.' }; else this.accountError = 'Your account could not be reconnected. Check your connection or sign in again.'; });
+    this.healthLastRecordedSuccess = this.healthState.snapshot.lastSyncSuccessAt;
+    this.healthScheduler.start();
+    this.restoreJob = this.account.restore().then(async () => {
+      await this.refreshHealthReportingGate();
+      await this.restoreSync();
+    }).catch((error: unknown) => { console.error('Saved account could not be restored', error instanceof Error ? error.name : 'unknown'); if (this.account.identity) this.sync.state = { ...this.sync.state, phase: 'error', message: 'Sync could not reconnect. Check your connection and try again.' }; else this.accountError = 'Your account could not be reconnected. Check your connection or sign in again.'; });
+  }
+
+  /** Live transport stays off unless env gate + signed-in bearer are both present. */
+  private async refreshHealthReportingGate(): Promise<void> {
+    if (!isClientHealthReportingEnabled() || !this.account.identity) {
+      this.healthReporter.setReportingEnabled(false, null);
+      return;
+    }
+    try {
+      const token = await this.account.bearer();
+      this.healthReporter.setReportingEnabled(true, token);
+    } catch {
+      this.healthReporter.setReportingEnabled(false, null);
+    }
+  }
+
+  private currentHeartbeatFacts() {
+    const signedIn = !!this.account.identity;
+    const sync = signedIn ? this.sync.state : { ...pausedSync(), phase: 'not-connected' as const, message: 'Sign in to continue' };
+    // Record genuine success into health state when protocol advances lastSuccess.
+    if (sync.lastSuccess && sync.lastSuccess !== this.healthLastRecordedSuccess) {
+      this.healthLastRecordedSuccess = sync.lastSuccess;
+      this.healthLastRecordedFailureAt = null;
+      void this.healthState.recordSyncSuccess(sync.lastSuccess);
+    }
+    // Count a failure once per error episode — not on every 5-minute tick.
+    if (sync.phase === 'error' && this.healthLastRecordedFailureAt !== (sync.message || 'error')) {
+      this.healthLastRecordedFailureAt = sync.message || 'error';
+      void this.healthState.recordSyncFailure();
+    }
+    if (sync.phase !== 'error') this.healthLastRecordedFailureAt = null;
+    const home = app.getPath('home');
+    const journalPaths = this.healthSyncStateDir
+      ? [join(this.healthSyncStateDir, 'journal.json'), join(this.healthSyncStateDir, 'sync-journal.json')]
+      : [];
+    const { overview, cache } = cachedLocalFilesOverview(this.healthLocalFilesCache, {
+      syncLogPath: defaultSharedSyncLogPath(home),
+      journalPaths,
+    });
+    this.healthLocalFilesCache = cache;
+    return buildCompanionHeartbeatFacts({
+      sync,
+      healthState: this.healthState.snapshot,
+      versions: {},
+      updaterState: 'unsupported',
+      localFilesOverview: overview,
+      signedIn,
+    });
   }
   private async probeRuntime(): Promise<{ available: boolean; diagnosis: RuntimeDiagnosis }> {
     try {
@@ -310,10 +396,11 @@ export class CompanionService {
   private async runLocalHealthChecks(): Promise<void> {
     if (this.healthRunning) return;
     this.healthRunning = true;
+    const reportingEnabled = this.healthReporter.isReportingEnabled;
     this.health = companionHealthFromResults(this.health.checks.map((check) => ({
       check: check.id,
       status: 'skip',
-    })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false });
+    })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled });
     try {
       const runtime = await this.probeRuntime();
       const results = await runHealthProbes({
@@ -330,33 +417,21 @@ export class CompanionService {
       });
       const checkedAt = new Date().toISOString();
       await this.healthState.markProbed(checkedAt);
-      this.health = companionHealthFromResults(results, { lastCheckedAt: checkedAt, reportingEnabled: false });
+      this.health = companionHealthFromResults(results, { lastCheckedAt: checkedAt, reportingEnabled });
       this.runtimeRepair = {
         ...this.runtimeRepair,
         diagnosis: runtime.diagnosis,
         guidance: runtimeGuidance(runtime.diagnosis).detail,
         status: this.runtimeRepair.status === 'running' ? 'running' : this.runtimeRepair.status === 'ready' && runtime.diagnosis === 'ok' ? 'ready' : 'idle',
       };
-      // Build a heartbeat for local validation only — transport stays disabled.
-      void this.healthReporter.report({
-        versions: { syncRunner: runtime.available ? '6.16.35' : undefined },
-        syncState: this.sync.state.phase === 'conflict' ? 'conflict_blocked'
-          : this.sync.state.phase === 'paused' ? 'paused'
-            : this.sync.state.phase === 'syncing' ? 'syncing'
-              : this.sync.state.phase === 'error' ? 'error'
-                : this.sync.state.phase === 'idle' || this.sync.state.phase === 'offline' ? 'idle'
-                  : 'never_synced',
-        lastSyncSuccessAt: this.sync.state.lastSuccess ?? undefined,
-        consecutiveFailures: this.sync.state.phase === 'error' ? 1 : 0,
-        conflictCount: this.sync.state.conflicts,
-        updaterState: 'unsupported',
-      });
+      // Debounced health-change emit — transport stays gated inside the reporter.
+      this.healthScheduler.notifyHealthChanged();
     } catch (error) {
       console.error('Local health checks failed:', error instanceof Error ? error.message : 'unknown');
       this.health = companionHealthFromResults(this.health.checks.map((check) => ({
         check: check.id,
         status: 'skip',
-      })), { retry: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false });
+      })), { retry: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled });
     } finally {
       this.healthRunning = false;
     }
@@ -406,9 +481,10 @@ export class CompanionService {
           pass: null,
           pendingCount: 0,
         };
+    const reportingEnabled = this.healthReporter.isReportingEnabled;
     const health = structuredClone(this.healthRunning
-      ? companionHealthFromResults(this.health.checks.map((check) => ({ check: check.id, status: 'skip' })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false })
-      : this.health);
+      ? companionHealthFromResults(this.health.checks.map((check) => ({ check: check.id, status: 'skip' })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled })
+      : { ...this.health, reportingEnabled });
     return {
       setup: this.setup ? structuredClone(this.setup) : undefined,
       version: app.getVersion(), platform: process.platform, installationId: state.installationId,
@@ -553,8 +629,11 @@ export class CompanionService {
             this.selectedScope = undefined;
             this.memberships = { status: 'idle', error: null };
             this.awaitingMembershipRefresh = false;
+            // Signed-out clients must stop authenticated reporting (AC).
+            this.healthReporter.setReportingEnabled(false, null);
             await this.account.signOut();
             this.accountError = undefined;
+            this.healthScheduler.notifyHealthChanged();
           }
           break;
         }
