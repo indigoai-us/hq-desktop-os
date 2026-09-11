@@ -62,6 +62,24 @@ describe('desktop sync recovery', () => {
     expect(service.account.identity).toBeUndefined(); expect(service.sync.running).toBe(false);
     spy.mockRestore(); await service.shutdown();
   });
+  it('stops sync and clears account UI state on sign-out without removing workspace registration', async () => {
+    const { writeFile, readFile } = await import('node:fs/promises');
+    await writeFile(join(root, 'keep.txt'), 'user-owned');
+    const service = await prepare();
+    await service.request({ action: 'diagnostics' });
+    expect(service.sync.start).toHaveBeenCalled();
+    const before = service.registry.snapshot.workspaces.length;
+    await service.request({ action: 'sign-out' });
+    expect(service.account.identity).toBeUndefined();
+    expect(service.sync.reset).toHaveBeenCalled();
+    expect(service.sync.running).toBe(false);
+    expect(service.registry.snapshot.workspaces).toHaveLength(before);
+    expect(await readFile(join(root, 'keep.txt'), 'utf8')).toBe('user-owned');
+    const snap = await service.snapshot();
+    expect(snap.account).toMatchObject({ status: 'signed-out', label: null });
+    expect(snap.sync.phase).toBe('not-connected');
+    await service.shutdown();
+  });
   it('does not start after a pause arrives during provisioning', async () => {
     let release!: () => void; host.provision.mockImplementation(() => new Promise<void>(resolve => { release = resolve; }));
     const service = await prepare(); await vi.waitFor(() => expect(host.provision).toHaveBeenCalled());

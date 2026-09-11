@@ -9,14 +9,14 @@ vi.mock('electron', () => ({ safeStorage: {
   encryptString: (text: string) => Buffer.from(text).map(byte => byte ^ 0xff),
   decryptString: (data: Buffer) => data.map(byte => byte ^ 0xff).toString(),
 } }));
-import { SecureTokenStore } from '../../src/main/secure-tokens';
+import { CredentialStore, SecureTokenStore, secureStorageAvailable } from '../../src/main/credential-store';
 afterEach(() => { storage.available = true; storage.backend = 'gnome_libsecret'; });
 describe('protected account storage', () => {
   const tokens = { idToken: 'private-identity', accessToken: 'private-access', refreshToken: 'private-refresh', expiresAt: 123 };
   it('uses the OS codec, private permissions, and serializes sign-out after writes', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hq-secure-store-'));
     try {
-      const store = new SecureTokenStore(directory); await store.write(tokens);
+      const store = new CredentialStore(directory); await store.write(tokens);
       const file = join(directory, 'account.encrypted');
       expect((await readFile(file)).includes(Buffer.from('private'))).toBe(false);
       if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
@@ -27,7 +27,12 @@ describe('protected account storage', () => {
   });
   it('never falls back to plaintext when secure storage is unavailable', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hq-secure-store-'));
-    try { storage.available = false; await expect(new SecureTokenStore(directory).write(tokens)).rejects.toThrow('secure password storage'); }
+    try { storage.available = false; await expect(new CredentialStore(directory).write(tokens)).rejects.toThrow('secure password storage'); }
     finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it('fails closed on Linux basic_text and keeps the SecureTokenStore alias', () => {
+    storage.backend = 'basic_text';
+    expect(secureStorageAvailable()).toBe(process.platform !== 'linux');
+    expect(new SecureTokenStore('/tmp')).toBeInstanceOf(CredentialStore);
   });
 });

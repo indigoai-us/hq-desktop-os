@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
+import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, Cloud, Laptop } from 'lucide-react';
 import { activeWorkspace, type CompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion';
 import { HEALTH_PREVIEW_FIXTURES } from '../shared/health-fixtures';
 import { createCompanionClient, type CompanionClient } from './companion-client';
@@ -7,6 +7,7 @@ import { HqMark } from './components/hq-mark';
 import { ConflictList } from './components/conflict-list';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
+import { AccountScreen } from './screens/account';
 import { SettingsScreen } from './screens/settings';
 
 const sections = [{ name: 'Workspace', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
@@ -176,7 +177,9 @@ export function CompanionApp() {
           <ul className="workspace-list">{state?.workspaces.map((item) => <li key={item.id} data-selected={item.id === state.activeWorkspaceId}><button className="workspace-choice" aria-pressed={item.id === state.activeWorkspaceId} disabled={!enabled} onClick={() => void run({ action: 'select-workspace', workspaceId: item.id }, 'Switching workspace')}><FolderOpen size={22}/><span><span>{item.name}</span><span className="muted workspace-path">{item.root}</span></span>{item.id === state.activeWorkspaceId && <Check size={16}/>}</button><Button variant="ghost" size="icon" aria-label={`Remove ${item.name} from app`} disabled={!enabled} onClick={() => setRemoveId(item.id)}><Trash2 size={15}/></Button></li>)}</ul>
           <div className="welcome-actions"><Button disabled={!enabled} onClick={() => void run({ action: 'open-folder', workspaceId: workspace!.id }, 'Opening your files')}><FolderOpen size={16}/>Open your files</Button></div>
         </section>
-        <section className="account-row"><UserRound size={23}/><div><h2>{connected ? state?.account.label ?? 'Your account' : 'Connect your account'}</h2><p>{connected ? 'You’re signed in to HQ.' : 'Sign in to bring your shared work to this computer.'}</p></div><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: connected ? 'sign-out' : 'sign-in' }, connected ? 'Signing out' : 'Opening sign-in')}>{connected ? 'Sign out' : 'Sign in'}{!connected && <ArrowUpRight size={15}/>}</Button></section>
+        {state && (
+          <AccountScreen state={state} enabled={enabled} connected={connected} run={run} />
+        )}
       </div>}
       {section === 'Sync' && <div data-screen="Sync" data-screen-state={screenStates.Sync} data-testid="screen-sync">
         <header className="page-heading"><h1>Sync</h1><p className="lead">Your latest work, wherever you need it.</p></header>

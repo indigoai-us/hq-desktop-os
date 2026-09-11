@@ -99,20 +99,23 @@
       "childProcessIpc": "covered",
       "shutdown": "covered",
       "workspaceRegistry": "covered",
-      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts)."
+      "credentialLifecycle": "covered",
+      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts)."
     },
     "windows": {
       "childProcessIpc": "deferred",
       "shutdown": "deferred",
       "workspaceRegistry": "deferred",
-      "notes": "Native Windows host matrix remains outstanding; prepare-runtime records the gap without blocking Linux acceptance."
+      "credentialLifecycle": "deferred",
+      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance); prepare-runtime records the gap without blocking Linux acceptance."
     },
     "wsl2": {
       "childProcessIpc": "deferred",
       "shutdown": "deferred",
       "workspaceRegistry": "deferred",
+      "credentialLifecycle": "deferred",
       "discovery": "contract-only",
-      "notes": "WSL discovery module returns actionable unavailable/missing/stopped states and rejects WSL1 via injectable parser tests. Live Windows WSL2 picker + runtime ownership remain US-014; not claimed from Linux fixtures."
+      "notes": "WSL discovery module returns actionable unavailable/missing/stopped states and rejects WSL1 via injectable parser tests. Live Windows WSL2 picker + runtime ownership remain US-014; not claimed from Linux fixtures. Auth handoff into a distro is US-014."
     }
   }
 }

@@ -7,7 +7,7 @@ import { prepareDependencies, runSetupCommand, findExecutable, toolchainPath } f
 import { launchTool, windowsTerminalPath } from './launch-tool.js';
 import { parseCompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion.js';
 import { AccountSession } from './auth.js';
-import { SecureTokenStore, secureStorageAvailable } from './secure-tokens.js';
+import { CredentialStore, secureStorageAvailable } from './credential-store.js';
 import { PreferenceStore, setLinuxAutostart, startupExecutable } from './preferences.js';
 import { SyncSelectionStore } from './sync-selection.js';
 import { SyncSupervisor } from './sync-supervisor.js';
@@ -26,7 +26,7 @@ export class CompanionService {
   private pending = false;
   trayAvailable = false;
   readonly preferences = new PreferenceStore(app.getPath('userData'));
-  readonly account = new AccountSession(new SecureTokenStore(app.getPath('userData')));
+  readonly account = new AccountSession(new CredentialStore(app.getPath('userData')));
   readonly sync = new SyncSupervisor(this.account);
   private scopes: SyncScope[] = [];
   private selectedScope?: string;

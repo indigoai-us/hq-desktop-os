@@ -4,6 +4,7 @@ import type { CompanionHealth } from '../../shared/health';
 import { ThemeControl } from '../theme';
 import { HealthChecks } from '../components/health-checks';
 import { Button } from '../components/ui/button';
+import { AccountScreen } from './account';
 
 export function SettingsScreen(props: {
   state: CompanionSnapshot;
@@ -20,19 +21,7 @@ export function SettingsScreen(props: {
         <p className="lead">Make HQ feel at home.</p>
       </header>
       <section className="content-section"><ThemeControl /></section>
-      <section className="setting-row">
-        <div>
-          <h2>Your account</h2>
-          <p>{connected ? state.account.label : 'You’re not signed in on this computer.'}</p>
-        </div>
-        <Button
-          variant="outline"
-          disabled={!enabled}
-          onClick={() => void run({ action: connected ? 'sign-out' : 'sign-in' }, connected ? 'Signing out' : 'Opening sign-in')}
-        >
-          {connected ? 'Sign out' : 'Sign in'}
-        </Button>
-      </section>
+      <AccountScreen state={state} enabled={enabled} connected={connected} run={run} layout="settings" />
       <section className="setting-row">
         <div>
           <h2>Keep HQ running</h2>

@@ -106,4 +106,8 @@ None of the following is claimed as passing anywhere in this repo.
 
 Linux attaches persist `root`, `environment`, `wslDistro` (null on native), and stable `installationId` atomically under `userData/workspaces.json` (`src/main/workspaces.ts`). Canonical aliases resolve through `realpath`; dual ownership of one physical root across environments is rejected. WSL listing lives in `src/main/platform/wsl-discovery.ts` and stays fail-closed on non-Windows hosts with an actionable unavailable state — it does not invent a Linux WSL runtime.
 
+## Credential lifecycle (US-010 Linux slice)
+
+Browser PKCE + bounded loopback (`src/main/auth.ts`) verifies Cognito identity before membership load and sync. Persisted credentials use Electron `safeStorage` via `CredentialStore` (`src/main/credential-store.ts`); Linux `basic_text` fails closed. Desktop storage is `userData/account.encrypted` and is proven isolated from the shared CLI token cache at `~/.hq/cognito-tokens.json`. Renderer snapshots expose only `PublicAccount` / credential availability (`src/shared/auth.ts`, `src/renderer/screens/account.tsx`) — never tokens. Sign-out stops sync and clears owned credentials without deleting workspace files. Windows Credential Manager / DPAPI acceptance stays deferred.
+
 CI is deferred by decision: no workflow file is committed on this branch yet, and no CI run has verified this work. The authored Windows/Linux native-acceptance workflow is preserved outside the repo and is restored in the final CI phase; until then every result above came from local runs on one Linux host.

@@ -2,14 +2,10 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { JWTVerifyGetKey } from 'jose' with { 'resolution-mode': 'import' };
 
+import { HQ_AUTH_PUBLIC } from '../shared/auth.js';
+
 /** Verified against a current HQ token, production web config and AWS on 2026-09-11. */
-export const HQ_AUTH = {
-  issuer: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_AXf6Kb5nE',
-  clientId: '7acei2c8v870enheptb1j5foln',
-  domain: 'https://vault-indigo-hq-prod.auth.us-east-1.amazoncognito.com',
-  redirectUri: 'http://localhost:53682/callback',
-  port: 53682,
-};
+export const HQ_AUTH = { ...HQ_AUTH_PUBLIC };
 export interface AccountTokens { accessToken: string; idToken: string; refreshToken: string; expiresAt: number }
 export interface TokenStore { read(): Promise<AccountTokens | undefined>; write(tokens: AccountTokens): Promise<void>; clear(): Promise<void> }
 export interface AccountIdentity { sub: string; label: string; expiresAt: number }

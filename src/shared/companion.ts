@@ -1,7 +1,9 @@
 import type { CompanionHealth } from './health.js';
+import type { CredentialStorageStatus, PublicAccount } from './auth.js';
 import type { Workspace } from './workspace.js';
 
 export type { Workspace, WorkspaceEnvironment } from './workspace.js';
+export type { AccountStatus, CredentialStorageStatus, PublicAccount } from './auth.js';
 
 /** Serializable desktop state. Credentials and arbitrary host commands never cross IPC. */
 export type SyncPhase = 'not-connected' | 'idle' | 'syncing' | 'paused' | 'offline' | 'conflict' | 'error';
@@ -17,10 +19,10 @@ export interface CompanionSnapshot {
   installationId: string;
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
-  account: { status: 'signed-out' | 'connected' | 'signing-in'; label: string | null; error?: string };
+  account: PublicAccount;
   sync: { phase: SyncPhase; lastSuccess: string | null; message: string; conflicts: number; conflictPaths: string[] };
   runtime: { version: string; available: boolean; node: string };
-  credentials: { available: boolean; backend: string };
+  credentials: CredentialStorageStatus;
   preferences: { closeToTray: boolean; launchAtLogin: boolean };
   diagnostics: { name: string; state: 'ok' | 'attention' | 'unavailable'; detail: string }[];
   health: CompanionHealth;
