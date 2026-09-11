@@ -26,6 +26,8 @@ export const PREVIEW_SCENARIOS = [
   'health-checking',
   'health-unavailable',
   'health-unknown',
+  'runtime-missing',
+  'runtime-failed',
 ] as const;
 
 export type PreviewScenarioId = (typeof PREVIEW_SCENARIOS)[number];
@@ -94,8 +96,19 @@ export function createBasePreviewSnapshot(
     runtime: { version: '6.16.35', available: true, node: '24' },
     credentials: { available: true, backend: 'preview' },
     preferences: { closeToTray: false, launchAtLogin: false },
-    diagnostics: [],
+    diagnostics: [
+      { name: 'App version', state: 'ok', detail: 'HQ Desktop OS' },
+      { name: 'Workspace environment', state: 'attention', detail: '0 registered workspaces. No workspace selected.' },
+      { name: 'Bundled runtime', state: 'ok', detail: 'The managed HQ runtime is available. HQ Cloud 6.16.35 · Node 24' },
+      { name: 'Credential storage', state: 'ok', detail: 'OS encrypted storage is available.' },
+      { name: 'Account', state: 'attention', detail: 'Not signed in.' },
+      { name: 'Sync', state: 'attention', detail: 'Sign in to sync your files.' },
+      { name: 'Updates', state: 'unavailable', detail: 'Local test build. Automatic updates and release signing are not configured.' },
+      { name: 'Client health', state: 'unavailable', detail: 'Local checks only. Server attribution and support commands are not enabled.' },
+    ],
     health: structuredClone(HEALTH_PREVIEW_FIXTURES[healthKey]),
+    diagnosticsPreview: null,
+    runtimeRepair: { status: 'idle', diagnosis: 'ok', guidance: 'The managed HQ runtime is available.' },
   };
 }
 
@@ -337,6 +350,44 @@ export function applyPreviewScenario(
         pass: null,
         pendingCount: 0,
       };
+      return;
+    }
+    case 'runtime-missing': {
+      connectAccount(state);
+      state.runtime.available = false;
+      state.runtimeRepair = {
+        status: 'idle',
+        diagnosis: 'missing',
+        guidance: 'The managed runtime is not installed on this computer. Repair restores owned tools only and leaves your workspace files unchanged.',
+      };
+      state.diagnostics = state.diagnostics.map((item) =>
+        item.name === 'Bundled runtime'
+          ? {
+              name: item.name,
+              state: 'unavailable',
+              detail: `${state.runtimeRepair!.guidance} HQ Cloud ${state.runtime.version} · Node ${state.runtime.node}`,
+            }
+          : item,
+      );
+      return;
+    }
+    case 'runtime-failed': {
+      connectAccount(state);
+      state.runtime.available = false;
+      state.runtimeRepair = {
+        status: 'idle',
+        diagnosis: 'failed',
+        guidance: 'The managed runtime failed a check. This is different from a missing install. Retry the check, or Repair to restore owned tools without changing your workspace files.',
+      };
+      state.diagnostics = state.diagnostics.map((item) =>
+        item.name === 'Bundled runtime'
+          ? {
+              name: item.name,
+              state: 'attention',
+              detail: `${state.runtimeRepair!.guidance} HQ Cloud ${state.runtime.version} · Node ${state.runtime.node}`,
+            }
+          : item,
+      );
       return;
     }
     default: {

@@ -39,6 +39,14 @@ export interface CompanionSnapshot {
   preferences: { closeToTray: boolean; launchAtLogin: boolean };
   diagnostics: { name: string; state: 'ok' | 'attention' | 'unavailable'; detail: string }[];
   health: CompanionHealth;
+  /** Redacted support-report preview; set only after an explicit preview action. */
+  diagnosticsPreview?: { generatedAt: string; text: string } | null;
+  /** Narrowly scoped managed-runtime repair status; never auto-started. */
+  runtimeRepair?: {
+    status: 'idle' | 'running' | 'ready' | 'error' | 'unsupported';
+    diagnosis: 'ok' | 'missing' | 'failed';
+    guidance: string;
+  } | null;
 }
 export const COMPANION_ACTIONS = [
   'snapshot',
@@ -59,8 +67,11 @@ export const COMPANION_ACTIONS = [
   'remove-workspace',
   'open-folder',
   'open-terminal',
+  'preview-diagnostics',
   'export-diagnostics',
+  'dismiss-diagnostics-preview',
   'diagnostics',
+  'repair-runtime',
   'set-preference',
   'sign-out',
 ] as const;

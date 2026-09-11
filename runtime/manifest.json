@@ -104,7 +104,8 @@
       "companySelection": "covered",
       "syncSupervisor": "covered",
       "syncControls": "covered",
-      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts). Guided setup journal + crash recovery (setup-state.ts / tests/native/setup.test.ts); membership discovery keeps explicit retry state and opens hq.computer create/invite web flows with focus-return refresh. US-012: shared hq-sync-runner argv (--watch/--direction both/--event-push + explicit scope), NDJSON protocol reduce, exclusive desktop-sync lock, bounded restart/backoff, pause/resume + IPC stop that preserves HQ_STATE_DIR journals (src/main/sync/*, tests/unit/sync-supervisor.test.ts, tests/runtime/supervisor.test.ts). US-013: Sync screen + status expose reconciliation/pending/realtime/polling/offline/paused/last confirmed sync from runner events; pause/resume/retry + validated scope controls; conflict list keep/publish-local/overwrite/abort with default abort (src/renderer/screens/sync.tsx, sync-status.tsx, conflict-list.tsx, tests/e2e/sync.spec.ts). Authenticated live subscribe/exchange and authenticated two-client conflict convergence remain deferred to user OAuth desktop acceptance — fixture/unit evidence covers the UI contract without claiming a live cloud round trip."
+      "diagnostics": "covered",
+      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts). Guided setup journal + crash recovery (setup-state.ts / tests/native/setup.test.ts); membership discovery keeps explicit retry state and opens hq.computer create/invite web flows with focus-return refresh. US-012: shared hq-sync-runner argv (--watch/--direction both/--event-push + explicit scope), NDJSON protocol reduce, exclusive desktop-sync lock, bounded restart/backoff, pause/resume + IPC stop that preserves HQ_STATE_DIR journals (src/main/sync/*, tests/unit/sync-supervisor.test.ts, tests/runtime/supervisor.test.ts). US-013: Sync screen + status expose reconciliation/pending/realtime/polling/offline/paused/last confirmed sync from runner events; pause/resume/retry + validated scope controls; conflict list keep/publish-local/overwrite/abort with default abort (src/renderer/screens/sync.tsx, sync-status.tsx, conflict-list.tsx, tests/e2e/sync.spec.ts). US-016: Settings diagnostics show app/runtime versions, workspace environment, sync outcomes, and health probe results; support export requires redacted preview before save with synthetic secret/path markers stripped (src/main/diagnostics.ts, settings.tsx, tests/native/diagnostics.test.ts); narrowly scoped Repair restores owned userData toolchain only and fingerprints workspace roots to prove no content mutation; missing vs failed runtime diagnoses stay distinct with retry guidance. Authenticated live subscribe/exchange and authenticated two-client conflict convergence remain deferred to user OAuth desktop acceptance — fixture/unit evidence covers the UI contract without claiming a live cloud round trip."
     },
     "windows": {
       "childProcessIpc": "deferred",
@@ -115,7 +116,8 @@
       "companySelection": "deferred",
       "syncSupervisor": "deferred",
       "syncControls": "deferred",
-      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance, Windows guided setup, Windows sync supervisor, and sync controls UI acceptance); prepare-runtime records the gap without blocking Linux acceptance."
+      "diagnostics": "deferred",
+      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance, Windows guided setup, Windows sync supervisor, sync controls UI acceptance, and diagnostics/repair acceptance); prepare-runtime records the gap without blocking Linux acceptance."
     },
     "wsl2": {
       "childProcessIpc": "deferred",
@@ -124,8 +126,9 @@
       "credentialLifecycle": "deferred",
       "syncSupervisor": "deferred",
       "syncControls": "deferred",
+      "diagnostics": "deferred",
       "discovery": "contract-only",
-      "notes": "WSL discovery module returns actionable unavailable/missing/stopped states and rejects WSL1 via injectable parser tests. Live Windows WSL2 picker + runtime ownership remain US-014; not claimed from Linux fixtures. Auth handoff into a distro is US-014."
+      "notes": "WSL discovery module returns actionable unavailable/missing/stopped states and rejects WSL1 via injectable parser tests. Live Windows WSL2 picker + runtime ownership remain US-014; not claimed from Linux fixtures. Auth handoff into a distro is US-014. Diagnostics/repair on WSL remain deferred with US-014."
     }
   }
 }

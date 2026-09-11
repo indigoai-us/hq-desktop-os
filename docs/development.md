@@ -51,10 +51,10 @@ Required deterministic scenarios (`src/renderer/dev/scenarios.ts`):
 | `failure` | Sync error phase with recovery copy |
 | `revoked-scope` | Selected company no longer authorized |
 
-Also available: `setup-error`, `memberships-error`, and Settings health
-fixtures `health-healthy`, `health-degraded`, `health-stale`,
-`health-checking`, `health-unavailable`, `health-unknown` (unknown maps to the
-unavailable fixture).
+Also available: `setup-error`, `memberships-error`, Settings health fixtures
+`health-healthy`, `health-degraded`, `health-stale`, `health-checking`,
+`health-unavailable`, `health-unknown` (unknown maps to the unavailable UI),
+and US-016 diagnostics fixtures `runtime-missing` / `runtime-failed`.
 
 The preview banner is marked **Preview · Changes here are not saved.** Use
 **Reset preview** (or reload `/dev/companion` without a scenario) to return to

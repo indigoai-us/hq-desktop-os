@@ -204,7 +204,48 @@ export function createPreviewClient(): CompanionClient {
         // Preview only: flip to healthy on the next snapshot tick.
         setTimeout(() => {
           state.health = structuredClone(HEALTH_PREVIEW_FIXTURES.healthy);
+          if (state.runtimeRepair?.diagnosis === 'ok') {
+            state.runtime.available = true;
+          }
         }, 400);
+      }
+      if (request.action === 'preview-diagnostics') {
+        state.diagnosticsPreview = {
+          generatedAt: '2026-09-11T12:00:00.000Z',
+          text: `${JSON.stringify({
+            generatedAt: '2026-09-11T12:00:00.000Z',
+            app: 'hq-desktop-os',
+            version: state.version,
+            platform: state.platform,
+            workspaceCount: state.workspaces.length,
+            workspaceEnvironments: state.workspaces.map((workspace) => workspace.environment),
+            runtime: { ...state.runtime, diagnosis: state.runtimeRepair?.diagnosis ?? 'ok' },
+            checks: state.diagnostics,
+            health: {
+              overall: state.health.overall,
+              lastCheckedAt: state.health.lastCheckedAt,
+              reportingEnabled: false,
+              clientName: 'hq-desktop-os',
+              checks: state.health.checks.map(({ id, label, status, detail }) => ({ id, label, status, detail })),
+            },
+          }, null, 2)}\n`,
+        };
+      }
+      if (request.action === 'dismiss-diagnostics-preview' || request.action === 'export-diagnostics') {
+        state.diagnosticsPreview = null;
+      }
+      if (request.action === 'repair-runtime') {
+        state.runtimeRepair = {
+          status: 'ready',
+          diagnosis: 'ok',
+          guidance: 'Owned runtime tools were restored. Your workspace files were not changed.',
+        };
+        state.runtime.available = true;
+        const runtimeCheck = state.diagnostics.find((item) => item.name === 'Bundled runtime');
+        if (runtimeCheck) {
+          runtimeCheck.state = 'ok';
+          runtimeCheck.detail = 'The managed HQ runtime is available. HQ Cloud 6.16.35 · Node 24';
+        }
       }
       return structuredClone(state);
     },

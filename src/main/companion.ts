@@ -21,6 +21,16 @@ import { HealthReporter } from './health/reporter.js';
 import { HealthStateStore } from './health/state.js';
 import { companionHealthFromResults, unavailableHealth } from './health/view.js';
 import type { CompanionHealth } from '../shared/health.js';
+import {
+  assertReportRedacted,
+  buildDiagnosticsChecks,
+  buildDiagnosticsReport,
+  diagnoseRuntime,
+  formatDiagnosticsPreview,
+  repairOwnedRuntime,
+  runtimeGuidance,
+  type RuntimeDiagnosis,
+} from './diagnostics.js';
 
 export class CompanionService {
   readonly registry = new WorkspaceRegistry(app.getPath('userData'));
@@ -50,6 +60,15 @@ export class CompanionService {
   });
   private health: CompanionHealth = unavailableHealth();
   private healthRunning = false;
+  private diagnosticsPreview: { generatedAt: string; text: string } | null = null;
+  private runtimeDiagnosis: RuntimeDiagnosis = 'ok';
+  private runtimeRepair: NonNullable<CompanionSnapshot['runtimeRepair']> = {
+    status: 'idle',
+    diagnosis: 'ok',
+    guidance: runtimeGuidance('ok').detail,
+  };
+  private repairAbort?: AbortController;
+  private repairJob?: Promise<void>;
   private async saveSyncChoice(enabled: boolean): Promise<void> {
     const id = this.registry.snapshot.activeWorkspaceId;
     const sub = this.account.identity?.sub;
@@ -266,6 +285,19 @@ export class CompanionService {
     await this.healthState.ensureInstallationId(this.registry.snapshot.installationId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || undefined);
     this.restoreJob = this.account.restore().then(() => this.restoreSync()).catch((error: unknown) => { console.error('Saved account could not be restored', error instanceof Error ? error.name : 'unknown'); if (this.account.identity) this.sync.state = { ...this.sync.state, phase: 'error', message: 'Sync could not reconnect. Check your connection and try again.' }; else this.accountError = 'Your account could not be reconnected. Check your connection or sign in again.'; });
   }
+  private async probeRuntime(): Promise<{ available: boolean; diagnosis: RuntimeDiagnosis }> {
+    try {
+      await access(require.resolve('@indigoai-us/hq-cloud/package.json'));
+      this.runtimeDiagnosis = 'ok';
+      return { available: true, diagnosis: 'ok' };
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      const diagnosis = diagnoseRuntime(false, { code: err.code, message: err.message });
+      this.runtimeDiagnosis = diagnosis;
+      console.error('Bundled HQ runtime unavailable:', err.message ?? 'resolution failed');
+      return { available: false, diagnosis };
+    }
+  }
   private async runLocalHealthChecks(): Promise<void> {
     if (this.healthRunning) return;
     this.healthRunning = true;
@@ -274,14 +306,12 @@ export class CompanionService {
       status: 'skip',
     })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false });
     try {
-      let runtimeAvailable = true;
-      try { await access(require.resolve('@indigoai-us/hq-cloud/package.json')); }
-      catch { runtimeAvailable = false; }
+      const runtime = await this.probeRuntime();
       const results = await runHealthProbes({
         signedIn: !!this.account.identity,
-        runnerAvailable: runtimeAvailable,
+        runnerAvailable: runtime.available,
         cliAvailable: false,
-        coreAvailable: runtimeAvailable,
+        coreAvailable: runtime.available,
         updaterSupported: false,
         updaterState: 'unsupported',
         syncPhase: this.account.identity ? this.sync.state.phase : 'not-connected',
@@ -292,9 +322,15 @@ export class CompanionService {
       const checkedAt = new Date().toISOString();
       await this.healthState.markProbed(checkedAt);
       this.health = companionHealthFromResults(results, { lastCheckedAt: checkedAt, reportingEnabled: false });
+      this.runtimeRepair = {
+        ...this.runtimeRepair,
+        diagnosis: runtime.diagnosis,
+        guidance: runtimeGuidance(runtime.diagnosis).detail,
+        status: this.runtimeRepair.status === 'running' ? 'running' : this.runtimeRepair.status === 'ready' && runtime.diagnosis === 'ok' ? 'ready' : 'idle',
+      };
       // Build a heartbeat for local validation only — transport stays disabled.
       void this.healthReporter.report({
-        versions: { syncRunner: runtimeAvailable ? '6.16.35' : undefined },
+        versions: { syncRunner: runtime.available ? '6.16.35' : undefined },
         syncState: this.sync.state.phase === 'conflict' ? 'conflict_blocked'
           : this.sync.state.phase === 'paused' ? 'paused'
             : this.sync.state.phase === 'syncing' ? 'syncing'
@@ -316,13 +352,54 @@ export class CompanionService {
       this.healthRunning = false;
     }
   }
+  private async repairRuntime(): Promise<void> {
+    if (this.repairAbort) throw new Error('Runtime repair is already running.');
+    const guidance = runtimeGuidance(this.runtimeDiagnosis);
+    if (!guidance.repairAvailable && this.runtimeDiagnosis === 'ok') {
+      this.runtimeRepair = { status: 'idle', diagnosis: 'ok', guidance: guidance.detail };
+      return;
+    }
+    this.repairAbort = new AbortController();
+    this.runtimeRepair = { status: 'running', diagnosis: this.runtimeDiagnosis, guidance: 'Restoring owned runtime tools…' };
+    const toolchain = join(app.getPath('userData'), 'toolchain');
+    const roots = this.registry.snapshot.workspaces.map((workspace) => workspace.root);
+    try {
+      const outcome = await repairOwnedRuntime({
+        toolchainDirectory: toolchain,
+        workspaceRoots: roots,
+        signal: this.repairAbort.signal,
+      });
+      await this.probeRuntime();
+      this.runtimeRepair = {
+        status: outcome.status,
+        diagnosis: this.runtimeDiagnosis,
+        guidance: outcome.guidance,
+      };
+    } finally {
+      this.repairAbort = undefined;
+    }
+  }
   async snapshot(): Promise<CompanionSnapshot> {
     const state = this.registry.snapshot;
     const backend = process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : process.platform;
     const credentialsAvailable = safeStorage.isEncryptionAvailable() && backend !== 'basic_text';
-    let runtimeAvailable = true;
-    try { await access(require.resolve('@indigoai-us/hq-cloud/package.json')); }
-    catch (error) { runtimeAvailable = false; console.error('Bundled HQ runtime unavailable:', error instanceof Error ? error.message : 'resolution failed'); }
+    const runtime = await this.probeRuntime();
+    const active = state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId);
+    const sync = this.account.identity
+      ? { ...this.sync.state }
+      : {
+          phase: 'not-connected' as const,
+          lastSuccess: null,
+          message: 'Sign in to sync your files.',
+          conflicts: 0,
+          conflictPaths: [] as string[],
+          transport: null,
+          pass: null,
+          pendingCount: 0,
+        };
+    const health = structuredClone(this.healthRunning
+      ? companionHealthFromResults(this.health.checks.map((check) => ({ check: check.id, status: 'skip' })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false })
+      : this.health);
     return {
       setup: this.setup ? structuredClone(this.setup) : undefined,
       version: app.getVersion(), platform: process.platform, installationId: state.installationId,
@@ -330,33 +407,32 @@ export class CompanionService {
       account: { status: this.loginAbort ? 'signing-in' : this.account.identity ? 'connected' : 'signed-out', label: this.account.identity?.label ?? null, error: this.accountError },
       syncScopes: this.scopes, selectedSyncScope: this.selectedScope,
       memberships: { ...this.memberships },
-      sync: this.account.identity
-        ? { ...this.sync.state }
-        : {
-            phase: 'not-connected',
-            lastSuccess: null,
-            message: 'Sign in to sync your files.',
-            conflicts: 0,
-            conflictPaths: [],
-            transport: null,
-            pass: null,
-            pendingCount: 0,
-          },
-      runtime: { version: '6.16.35', available: runtimeAvailable, node: process.versions.node },
+      sync,
+      runtime: { version: '6.16.35', available: runtime.available, node: process.versions.node },
       credentials: { available: credentialsAvailable, backend },
       preferences: { ...this.preferences.state },
-      health: structuredClone(this.healthRunning
-        ? companionHealthFromResults(this.health.checks.map((check) => ({ check: check.id, status: 'skip' })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false })
-        : this.health),
-      diagnostics: [
-        { name: 'Workspace registry', state: 'ok', detail: `${state.workspaces.length} registered workspace${state.workspaces.length === 1 ? '' : 's'}` },
-        { name: 'Bundled runtime', state: runtimeAvailable ? 'ok' : 'attention', detail: `HQ Cloud 6.16.35 · Node ${process.versions.node}` },
-        { name: 'Credential storage', state: credentialsAvailable ? 'ok' : 'attention', detail: credentialsAvailable ? 'OS encrypted storage is available.' : 'OS encrypted storage is unavailable. Sign-in stays disabled.' },
-        { name: 'Account', state: this.account.identity ? 'ok' : 'attention', detail: this.account.identity ? 'Account verified.' : 'Not signed in.' },
-        { name: 'Sync', state: this.sync.running ? 'ok' : 'attention', detail: this.sync.state.message },
-        { name: 'Updates', state: 'unavailable', detail: 'Local test build. Automatic updates and release signing are not configured.' },
-        { name: 'Client health', state: this.health.overall === 'healthy' ? 'ok' : this.health.overall === 'degraded' || this.health.overall === 'retry' ? 'attention' : 'unavailable', detail: this.health.reportingEnabled ? 'Reporting enabled.' : 'Local checks only. Server attribution and support commands are not enabled.' },
-      ],
+      health,
+      diagnostics: buildDiagnosticsChecks({
+        workspaceCount: state.workspaces.length,
+        workspaceEnvironment: active?.environment ?? null,
+        runtimeAvailable: runtime.available,
+        runtimeDiagnosis: runtime.diagnosis,
+        runtimeVersion: '6.16.35',
+        nodeVersion: process.versions.node,
+        credentialsAvailable,
+        signedIn: !!this.account.identity,
+        sync,
+        healthOverall: health.overall,
+        healthReportingEnabled: health.reportingEnabled,
+      }),
+      diagnosticsPreview: this.diagnosticsPreview ? { ...this.diagnosticsPreview } : null,
+      runtimeRepair: {
+        ...this.runtimeRepair,
+        diagnosis: runtime.diagnosis,
+        guidance: this.runtimeRepair.status === 'idle' || this.runtimeRepair.status === 'running'
+          ? (this.runtimeRepair.status === 'running' ? this.runtimeRepair.guidance : runtimeGuidance(runtime.diagnosis).detail)
+          : this.runtimeRepair.guidance,
+      },
     };
   }
   async request(raw: unknown): Promise<CompanionSnapshot> {
@@ -415,13 +491,31 @@ export class CompanionService {
           }
           break;
         }
+        case 'preview-diagnostics': {
+          this.diagnosticsPreview = await this.buildDiagnosticsPreview();
+          break;
+        }
+        case 'dismiss-diagnostics-preview': {
+          this.diagnosticsPreview = null;
+          break;
+        }
         case 'export-diagnostics': {
-          const report = await this.diagnosticsReport();
+          const preview = this.diagnosticsPreview ?? await this.buildDiagnosticsPreview();
+          this.diagnosticsPreview = preview;
           const result = await dialog.showSaveDialog({ title: 'Export redacted diagnostics', defaultPath: 'hq-desktop-diagnostics.json', filters: [{ name: 'JSON report', extensions: ['json'] }] });
-          if (!result.canceled && result.filePath) await writeFile(result.filePath, report, { mode: 0o600 });
+          if (!result.canceled && result.filePath) {
+            await writeFile(result.filePath, preview.text, { mode: 0o600 });
+            this.diagnosticsPreview = null;
+          }
           break;
         }
         case 'diagnostics': await this.runLocalHealthChecks(); break;
+        case 'repair-runtime': {
+          this.repairJob = this.repairRuntime();
+          await this.repairJob;
+          this.repairJob = undefined;
+          break;
+        }
         case 'set-preference': {
           if (request.preference === 'closeToTray' && request.enabled && !this.trayAvailable) throw new Error('This desktop does not support keeping HQ in the tray. Keep the window open to continue syncing.');
           if (request.preference === 'launchAtLogin') {
@@ -449,9 +543,36 @@ export class CompanionService {
       return await this.snapshot();
     } finally { this.pending = false; }
   }
-  async diagnosticsReport(): Promise<string> {
+  async buildDiagnosticsPreview(): Promise<{ generatedAt: string; text: string }> {
     const state = await this.snapshot();
-    // Explicit allowlist; paths, installation ID, account identity, env, and raw errors stay local.
-    return JSON.stringify({ generatedAt: new Date().toISOString(), app: 'hq-desktop-os', version: state.version, platform: state.platform, workspaceCount: state.workspaces.length, runtime: state.runtime, checks: state.diagnostics, health: state.health }, null, 2);
+    const active = state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId);
+    const report = buildDiagnosticsReport({
+      version: state.version,
+      platform: state.platform,
+      workspaceCount: state.workspaces.length,
+      workspaceEnvironments: [...new Set(state.workspaces.map((workspace) => workspace.environment))],
+      runtime: {
+        version: state.runtime.version,
+        available: state.runtime.available,
+        node: state.runtime.node,
+        diagnosis: this.runtimeDiagnosis,
+      },
+      sync: state.sync,
+      checks: state.diagnostics,
+      health: state.health,
+    });
+    const text = formatDiagnosticsPreview(report);
+    // Defense in depth: never return absolute workspace roots or account labels.
+    assertReportRedacted(text, [
+      ...state.workspaces.map((workspace) => workspace.root),
+      state.installationId,
+      state.account.label ?? '',
+      active?.root ?? '',
+    ].filter(Boolean));
+    return { generatedAt: report.generatedAt, text };
+  }
+  /** @deprecated Prefer buildDiagnosticsPreview — kept for unit callers. */
+  async diagnosticsReport(): Promise<string> {
+    return (await this.buildDiagnosticsPreview()).text;
   }
 }
