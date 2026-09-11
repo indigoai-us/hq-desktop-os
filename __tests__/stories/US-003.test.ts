@@ -1,6 +1,9 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import type { Plugin, UserConfig } from 'vite';
+import viteConfig from '../../vite.config';
 import { PACKAGED_CSP, DEVELOPMENT_CSP } from '../../src/main/csp';
 import { parseCsp } from '../../tests/helpers/csp';
 import {
@@ -13,6 +16,68 @@ const root = process.cwd();
 
 function read(rel: string): string {
   return readFileSync(join(root, rel), 'utf8');
+}
+
+/** Every plugin the shipped Vite config installs, including nested presets. */
+function configuredPlugins(): Plugin[] {
+  const flatten = (value: unknown): Plugin[] =>
+    Array.isArray(value) ? value.flatMap(flatten) : value ? [value as Plugin] : [];
+  return flatten((viteConfig as UserConfig).plugins);
+}
+
+/** The real plugin instance from the shipped Vite config, by name. */
+function plugin(name: string): Plugin {
+  const found = configuredPlugins().find((candidate) => candidate.name === name);
+  if (!found) throw new Error(`vite.config has no plugin named ${name}`);
+  return found;
+}
+
+/** Run a plugin's index-HTML transform the way Vite would. */
+function transformHtml(name: string, html: string, ctx: unknown): string {
+  const hook = plugin(name).transformIndexHtml;
+  if (typeof hook !== 'function') throw new Error(`${name} has no callable transformIndexHtml`);
+  const result = (hook as (html: string, ctx: unknown) => unknown)(html, ctx);
+  if (typeof result !== 'string') throw new Error(`${name} did not return HTML`);
+  return result;
+}
+
+interface BootstrapRun {
+  readonly dataTheme: string | undefined;
+  readonly colorScheme: string;
+}
+
+/**
+ * Execute the shipped theme bootstrap against a stub document, so its real
+ * behaviour — not its source text — is what the story asserts.
+ */
+function runThemeBootstrap(options: {
+  stored?: string | null;
+  storageThrows?: boolean;
+  systemDark?: boolean;
+  matchMediaThrows?: boolean;
+}): BootstrapRun {
+  const attributes: Record<string, string> = {};
+  const root = {
+    setAttribute(name: string, value: string) {
+      attributes[name] = value;
+    },
+    style: { colorScheme: '' },
+  };
+  const sandbox: Record<string, unknown> = {
+    document: { documentElement: root },
+    matchMedia: (query: string) => {
+      if (options.matchMediaThrows) throw new Error('matchMedia unavailable');
+      return { matches: Boolean(options.systemDark) && query.includes('dark') };
+    },
+  };
+  Object.defineProperty(sandbox, 'localStorage', {
+    get() {
+      if (options.storageThrows) throw new Error('storage blocked');
+      return { getItem: () => (options.stored === undefined ? null : options.stored) };
+    },
+  });
+  runInNewContext(read('src/renderer/public/theme-init.js'), sandbox);
+  return { dataTheme: attributes['data-theme'], colorScheme: root.style.colorScheme };
 }
 
 function cssCustomProperties(source: string): Set<string> {
@@ -34,10 +99,12 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     expect(pkg.dependencies['tailwind-merge']).toBeTruthy();
     expect(pkg.dependencies['class-variance-authority']).toBeTruthy();
 
-    const vite = read('vite.config.ts');
-    expect(vite).toContain("@tailwindcss/vite");
-    expect(vite).toContain('tailwindcss()');
-    expect(vite).toContain("'@'");
+    // The config object itself must carry the Tailwind Vite plugin and alias.
+    const plugins = configuredPlugins();
+    expect(plugins.map((candidate) => candidate.name)).toContain('@tailwindcss/vite:scan');
+    expect(plugins.some((candidate) => candidate.name.startsWith('vite:react'))).toBe(true);
+    const alias = (viteConfig as UserConfig).resolve?.alias as Record<string, string>;
+    expect(alias['@']).toBe(join(root, 'src/renderer'));
 
     const components = JSON.parse(read('components.json')) as {
       style: string;
@@ -167,24 +234,78 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
   });
 
   it('ships theme-init beside the built renderer and keeps docs accurate', () => {
-    // Build output may already exist from parent preview; if present, assert artifact.
-    const distHtmlPath = join(root, 'dist/renderer/index.html');
-    try {
-      const distHtml = readFileSync(distHtmlPath, 'utf8');
-      expect(distHtml).toMatch(/theme-init\.js/);
-      const assets = readdirSync(join(root, 'dist/renderer'));
-      expect(assets).toContain('theme-init.js');
-      const csp = parseCsp(
-        distHtml.match(/http-equiv="Content-Security-Policy"\s+content="([^"]*)"/)?.[1] ?? '',
-      );
-      expect(csp['script-src']).toEqual(["'self'"]);
-    } catch {
-      // Absence is fine before build; the build gate below covers generation.
-    }
+    // Vite copies publicDir verbatim, so the bootstrap ships as a same-origin
+    // classic script next to index.html.
+    expect(read('src/renderer/public/theme-init.js')).toContain(THEME_STORAGE_KEY);
+    expect(read('src/renderer/index.html')).toContain('src="./theme-init.js"');
+
+    // Run the shipped build transform over the shipped document.
+    const built = transformHtml('production-csp', read('src/renderer/index.html'), {});
+    const csp = parseCsp(
+      built.match(/http-equiv="Content-Security-Policy"\s+content="([^"]*)"/)?.[1] ?? '',
+    );
+    expect(csp['script-src']).toEqual(["'self'"]);
+    expect(csp['connect-src']).toEqual(["'self'"]);
+    expect(built).toContain('src="./theme-init.js"');
 
     const docs = read('docs/theme-tokens.md');
     expect(docs).toContain('theme-init.js');
     expect(docs).toContain('script-src');
     expect(docs).toContain('components.json');
+  });
+  it('applies the stored preference in the bootstrap before any framework runs', () => {
+    expect(runThemeBootstrap({ stored: 'dark' })).toEqual({
+      dataTheme: 'dark',
+      colorScheme: 'dark',
+    });
+    expect(runThemeBootstrap({ stored: 'light', systemDark: true })).toEqual({
+      dataTheme: 'light',
+      colorScheme: 'light',
+    });
+    expect(runThemeBootstrap({ stored: 'system', systemDark: true })).toEqual({
+      dataTheme: 'system',
+      colorScheme: 'dark',
+    });
+  });
+
+  it('falls back to system in the bootstrap when storage or matchMedia fails', () => {
+    for (const corrupt of ['', '  ', 'Dark', '{"preference":"dark"}', 'null']) {
+      expect(runThemeBootstrap({ stored: corrupt }).dataTheme, corrupt).toBe('system');
+    }
+    expect(runThemeBootstrap({ stored: null })).toEqual({
+      dataTheme: 'system',
+      colorScheme: 'light',
+    });
+    expect(runThemeBootstrap({ storageThrows: true, systemDark: true })).toEqual({
+      dataTheme: 'system',
+      colorScheme: 'dark',
+    });
+    expect(runThemeBootstrap({ stored: 'system', matchMediaThrows: true })).toEqual({
+      dataTheme: 'system',
+      colorScheme: 'light',
+    });
+  });
+
+  it('points the development CSP at the dev server that is actually running', () => {
+    const html = read('src/renderer/index.html');
+    const served = transformHtml('development-refresh-csp', html, {
+      server: { resolvedUrls: { local: ['http://127.0.0.1:4331/'] }, config: { server: {} } },
+    });
+    const csp = parseCsp(
+      served.match(/http-equiv="Content-Security-Policy"\s+content="([^"]*)"/)?.[1] ?? '',
+    );
+    // The HMR socket of this server must be reachable, not only the default port.
+    expect(csp['connect-src']).toEqual([
+      "'self'",
+      'ws://127.0.0.1:4331',
+      'http://127.0.0.1:4331',
+    ]);
+    expect(csp['script-src']).toContain("'unsafe-inline'");
+
+    // Without a running server the document keeps its declared policy.
+    const untouched = transformHtml('development-refresh-csp', html, {});
+    expect(parseCsp(untouched.match(/content="([^"]*)"/)?.[1] ?? '')['connect-src']).toEqual(
+      parseCsp(html.match(/content="([^"]*)"/)?.[1] ?? '')['connect-src'],
+    );
   });
 });

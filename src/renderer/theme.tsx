@@ -4,12 +4,15 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react';
 import {
   THEME_PREFERENCES,
   applyThemeToDocument,
+  nextThemeIndex,
   readStoredTheme,
   resolveAppearance,
   systemPrefersDark,
@@ -127,11 +130,31 @@ const LABELS: Record<ThemePreference, string> = {
 /** Accessible theme preference control. No app identity or window chrome. */
 export function ThemeControl({ className }: { className?: string }) {
   const { preference, setPreference, storageAvailable } = useTheme();
+  const group = useRef<HTMLDivElement | null>(null);
+
+  // Arrow / Home / End move selection and focus together, as a radiogroup must.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = nextThemeIndex(
+      THEME_PREFERENCES.indexOf(preference),
+      event.key,
+      THEME_PREFERENCES.length,
+    );
+    if (target === null) return;
+    event.preventDefault();
+    setPreference(THEME_PREFERENCES[target]!);
+    group.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[target]?.focus();
+  };
 
   return (
     <fieldset className={cn('hq-theme-control', className)} data-testid="theme-control">
       <legend>Appearance</legend>
-      <div role="radiogroup" aria-label="Appearance" className="flex flex-wrap gap-1">
+      <div
+        ref={group}
+        role="radiogroup"
+        aria-label="Appearance"
+        className="flex flex-wrap gap-1"
+        onKeyDown={onKeyDown}
+      >
         {THEME_PREFERENCES.map((option) => {
           const checked = preference === option;
           return (
@@ -140,6 +163,8 @@ export function ThemeControl({ className }: { className?: string }) {
               type="button"
               role="radio"
               aria-checked={checked}
+              // Roving tabindex: the group is one tab stop, arrows move inside it.
+              tabIndex={checked ? 0 : -1}
               data-testid={`theme-option-${option}`}
               className="hq-theme-option"
               onClick={() => setPreference(option)}

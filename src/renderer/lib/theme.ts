@@ -89,3 +89,28 @@ export function applyThemeToDocument(
   root.setAttribute('data-theme', preference);
   root.style.colorScheme = appearance;
 }
+
+/**
+ * Roving-focus target for a radiogroup key press, or null when the key is not
+ * a group navigation key. A declared `role="radio"` group has to answer arrow,
+ * Home and End keys; without this a keyboard user can focus the group but
+ * never reach the other options.
+ */
+export function nextThemeIndex(current: number, key: string, count: number): number | null {
+  if (count <= 0) return null;
+  const from = current < 0 ? 0 : current % count;
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      return (from + 1) % count;
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      return (from + count - 1) % count;
+    case 'Home':
+      return 0;
+    case 'End':
+      return count - 1;
+    default:
+      return null;
+  }
+}

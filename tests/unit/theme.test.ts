@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import { cn } from '../../src/renderer/lib/utils';
 import {
   THEME_STORAGE_KEY,
+  THEME_PREFERENCES,
   applyThemeToDocument,
+  nextThemeIndex,
   parseStoredTheme,
   readStoredTheme,
   resolveAppearance,
@@ -209,5 +211,23 @@ describe('isolated theme-init artifact', () => {
     expect(pathToFileURL(join(process.cwd(), 'src/renderer/public/theme-init.js')).protocol).toBe(
       'file:',
     );
+  });
+  it('navigates the appearance radiogroup with arrow, Home and End keys', () => {
+    const count = THEME_PREFERENCES.length;
+    expect(count).toBe(3);
+    expect(nextThemeIndex(0, 'ArrowRight', count)).toBe(1);
+    expect(nextThemeIndex(0, 'ArrowDown', count)).toBe(1);
+    // Both directions wrap, so the group is never a dead end.
+    expect(nextThemeIndex(count - 1, 'ArrowRight', count)).toBe(0);
+    expect(nextThemeIndex(0, 'ArrowLeft', count)).toBe(count - 1);
+    expect(nextThemeIndex(1, 'ArrowUp', count)).toBe(0);
+    expect(nextThemeIndex(2, 'Home', count)).toBe(0);
+    expect(nextThemeIndex(0, 'End', count)).toBe(count - 1);
+    // A missing selection starts from the first option rather than out of range.
+    expect(nextThemeIndex(-1, 'ArrowRight', count)).toBe(1);
+    for (const ignored of ['Tab', 'Enter', ' ', 'a', 'Escape']) {
+      expect(nextThemeIndex(0, ignored, count), ignored).toBeNull();
+    }
+    expect(nextThemeIndex(0, 'ArrowRight', 0)).toBeNull();
   });
 });
