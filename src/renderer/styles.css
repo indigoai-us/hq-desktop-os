@@ -67,6 +67,22 @@
     color-scheme: light dark;
   }
 
+  /*
+   * Motion here is feedback, never decoration: the only animated properties are
+   * transform (progress fill) and opacity (dialog close affordance). When a user
+   * asks for reduced motion the same states still arrive, just without travel.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   body {
     margin: 0;
     min-height: 100vh;

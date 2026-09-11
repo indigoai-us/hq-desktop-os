@@ -28,6 +28,9 @@
   --text-canvas: 0.8125rem; /* 13px */
   --text-title: 1.25rem; /* 20px */
   --radius: 0;
+  /* Motion is feedback only: one state-change duration, one decelerating curve. */
+  --motion-state: 220ms;
+  --motion-ease-out: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 [data-theme='dark'] {

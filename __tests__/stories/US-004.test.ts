@@ -138,6 +138,34 @@ describe('US-004 accessible shadcn component foundation', () => {
     expect(docs).toContain('script-src');
   });
 
+  it('honours prefers-reduced-motion and animates only compositor properties', () => {
+    const styles = read('src/renderer/styles.css');
+    const tokens = read('src/renderer/tokens.css');
+
+    // Reduced motion is answered globally, so every primitive inherits it.
+    expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(styles).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
+    expect(styles).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
+
+    // Shared motion tokens, not per-component timing copies.
+    expect(tokens).toMatch(/--motion-state:\s*\d+ms/);
+    expect(tokens).toContain('--motion-ease-out: cubic-bezier');
+    // Decelerating curve only: no overshoot/bounce keywords anywhere.
+    for (const source of [styles, tokens]) {
+      expect(source).not.toMatch(/\b(bounce|elastic|backOut|overshoot)\b/i);
+    }
+
+    // Progress movement is token-timed transform; nothing animates layout.
+    const progress = read('src/renderer/components/ui/progress.tsx');
+    expect(progress).toContain('transition-transform');
+    expect(progress).toContain('duration-[var(--motion-state)]');
+    expect(progress).toContain('ease-[var(--motion-ease-out)]');
+    for (const rel of UI_FILES) {
+      const body = read(rel);
+      expect(body, rel).not.toMatch(/transition-\[?(width|height|top|left|all)\b/);
+    }
+  });
+
   it('does not ship the gallery module in the production renderer assets', () => {
     const rendererDir = join(root, 'dist/renderer/assets');
     if (!existsSync(rendererDir)) {
