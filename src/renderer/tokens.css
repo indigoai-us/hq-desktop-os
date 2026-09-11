@@ -1,1 +1,84 @@
-:root { color-scheme: dark; --background: #17161a; --foreground: #f4f2f7; --muted: #b8b3bf; --border: #49434f; }
+/*
+ * Semantic color, spacing, typography and focus tokens.
+ * Light / dark pairs; `data-theme="system"` follows prefers-color-scheme.
+ * Accent stays monochrome; chroma is reserved for semantic status.
+ */
+
+:root,
+[data-theme='light'] {
+  --background: #f7f6f8;
+  --foreground: #1a181e;
+  --muted: #ebe9ee;
+  --muted-foreground: #5c5864;
+  --border: #d4d0d9;
+  --accent: #2e2a33;
+  --accent-foreground: #f7f6f8;
+  --ring: #2e2a33;
+  --selection: #dcd8e2;
+  --status-success: #1f6b3a;
+  --status-warning: #8a5a00;
+  --status-danger: #a12622;
+  --status-info: #2a4f7a;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --text-canvas: 0.8125rem; /* 13px */
+  --text-title: 1.25rem; /* 20px */
+  --radius: 0;
+}
+
+[data-theme='dark'] {
+  --background: #17161a;
+  --foreground: #f4f2f7;
+  --muted: #2a2730;
+  --muted-foreground: #b8b3bf;
+  --border: #49434f;
+  --accent: #d8d4de;
+  --accent-foreground: #17161a;
+  --ring: #d8d4de;
+  --selection: #3a3542;
+  --status-success: #6dcb8d;
+  --status-warning: #e0b34d;
+  --status-danger: #e5736e;
+  --status-info: #7aa7d9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']),
+  [data-theme='system'] {
+    --background: #17161a;
+    --foreground: #f4f2f7;
+    --muted: #2a2730;
+    --muted-foreground: #b8b3bf;
+    --border: #49434f;
+    --accent: #d8d4de;
+    --accent-foreground: #17161a;
+    --ring: #d8d4de;
+    --selection: #3a3542;
+    --status-success: #6dcb8d;
+    --status-warning: #e0b34d;
+    --status-danger: #e5736e;
+    --status-info: #7aa7d9;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme='system'] {
+    --background: #f7f6f8;
+    --foreground: #1a181e;
+    --muted: #ebe9ee;
+    --muted-foreground: #5c5864;
+    --border: #d4d0d9;
+    --accent: #2e2a33;
+    --accent-foreground: #f7f6f8;
+    --ring: #2e2a33;
+    --selection: #dcd8e2;
+    --status-success: #1f6b3a;
+    --status-warning: #8a5a00;
+    --status-danger: #a12622;
+    --status-info: #2a4f7a;
+  }
+}

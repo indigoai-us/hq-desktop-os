@@ -2,7 +2,7 @@
 
 HQ Desktop OS is an open-source desktop companion for Windows and Linux. It will handle workspace setup, authentication, and sync, with native Windows as the default and WSL2 support planned.
 
-This repository currently contains the TypeScript build foundation, a secure Electron shell, and a typed `PlatformClient` boundary. Workspace setup, authentication, sync, installers, and native platform verification are still pending. It does not connect to HQ services yet.
+This repository currently contains the TypeScript build foundation, a secure Electron shell, Tailwind + HQ theme tokens (system/light/dark), and a typed `PlatformClient` boundary. Workspace setup, authentication, sync, installers, and native platform verification are still pending. It does not connect to HQ services yet. See `docs/theme-tokens.md` for the styling contract.
 
 ## Develop
 

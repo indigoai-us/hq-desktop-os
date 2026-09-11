@@ -13,7 +13,11 @@
     ],
     "jsx": "react-jsx",
     "noEmit": true,
-    "rootDir": "src"
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/renderer/*"]
+    }
   },
   "include": [
     "src/renderer/**/*.ts",
