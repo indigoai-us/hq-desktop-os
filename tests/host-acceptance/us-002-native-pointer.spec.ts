@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { productionRuntimePath } from '../electron/runtime';
+import { authorizeHost } from './host-guard';
 
 /**
  * The window manager, not the app, has to honour a titlebar drag and an
@@ -27,40 +28,16 @@ import { productionRuntimePath } from '../electron/runtime';
  *   prove it can actually move the pointer before any assertion is made; if it
  *   cannot, this spec FAILS with that measured reason.
  *
- * Nothing native happens at import time. Compiling the helper and probing the
- * display are side effects on a real desktop, so they run inside beforeAll,
- * behind the provisioned-host guard below — merely collecting or listing this
- * suite injects no pointer input and compiles nothing.
+ * Nothing native happens at import time, and nothing native happens at all
+ * until ./host-guard has authorized this host: compiling the helper, probing
+ * the display and launching the app are all side effects on a real desktop, so
+ * they share one beforeAll that begins with authorizeHost(). Merely collecting
+ * or listing this suite injects no pointer input, compiles nothing and opens
+ * no window.
  */
-
-/**
- * An isolated host provisioned for acceptance must announce itself. Without
- * this, the suite refuses to touch the display: pointer injection on someone's
- * live desktop is never acceptable, and a run that could not be authorised is
- * a failure, not a pass.
- */
-const PROVISIONED_HOST_ENV = 'HQ_HOST_ACCEPTANCE';
-
-function provisionedHost(): { ok: boolean; reason: string } {
-  if (process.env[PROVISIONED_HOST_ENV] !== '1') {
-    return {
-      ok: false,
-      reason:
-        `${PROVISIONED_HOST_ENV}=1 is not set, so this host has not been declared an isolated acceptance host`,
-    };
-  }
-  if (process.platform !== 'linux' || !process.env.DISPLAY) {
-    return { ok: false, reason: 'no Linux X11 DISPLAY to drive' };
-  }
-  if (!existsSync('/usr/include/X11/extensions/XTest.h')) {
-    return { ok: false, reason: 'libXtst development headers are missing, so the pointer helper cannot be built' };
-  }
-  return { ok: true, reason: 'declared isolated X11 acceptance host' };
-}
 
 let helperDir: string | null = null;
 let helper: string | null = null;
-let injection: { ok: boolean; reason: string } = { ok: false, reason: 'the host capability probe has not run' };
 
 function compileHelper(): string | null {
   try {
@@ -133,33 +110,26 @@ async function dragAndSettle(from: [number, number], to: [number, number]): Prom
 
 test.describe('US-002 native pointer input against the OS frame', () => {
   // This suite is only ever run by `pnpm test:host-acceptance` on a host that
-  // was provisioned for it. Every native step — compiling the helper, probing
-  // the display, injecting input — happens here at execution time, after the
-  // provisioned-host guard, never during collection. An incapable or
-  // undeclared host FAILS here with the measured reason instead of skipping,
-  // so an unproven titlebar drag can never be read as a pass. The default
-  // suites do not contain this spec at all.
-  test.beforeAll(() => {
-    const provisioned = provisionedHost();
-    if (!provisioned.ok) {
-      throw new Error(
-        `UNSUPPORTED ACCEPTANCE HOST: ${provisioned.reason}. Titlebar drag and edge resize are unproven ` +
-          'on this host. Run this suite only on a provisioned isolated X11 acceptance host (or under Xvfb) ' +
-          `with ${PROVISIONED_HOST_ENV}=1; it must never run against a live user desktop.`,
-      );
-    }
-    helper = compileHelper();
-    injection = injectionHonoured(helper);
-    if (!injection.ok) {
-      throw new Error(
-        `UNSUPPORTED ACCEPTANCE HOST: real pointer input cannot be driven here — ${injection.reason}. ` +
-          'Titlebar drag and edge resize are unproven on this host. Run this suite on a provisioned ' +
-          'isolated X11 acceptance host (or under Xvfb); it must never run against a live user desktop.',
-      );
-    }
-  });
-
+  // was provisioned for it. An incapable or undeclared host FAILS below with
+  // the measured reason instead of skipping, so an unproven titlebar drag can
+  // never be read as a pass. The default suites do not contain this spec.
+  //
+  // One hook, deliberately: Playwright keeps running the remaining beforeAll
+  // hooks after an ordinary error, so a guard in its own hook would report a
+  // failure while a second hook still launched, focused and repositioned the
+  // app on an undeclared desktop. Authorization, the capability probe and the
+  // launch therefore share this hook, and the throw short-circuits all of it.
   test.beforeAll(async () => {
+    const capability = authorizeHost(
+      {
+        env: process.env,
+        platform: process.platform,
+        xtestHeaders: existsSync('/usr/include/X11/extensions/XTest.h'),
+      },
+      { compileHelper, injectionHonoured },
+    );
+    helper = capability.helper;
+
     app = await electron.launch({
       executablePath: productionRuntimePath(),
       args: [],
