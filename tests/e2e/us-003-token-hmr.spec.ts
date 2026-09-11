@@ -2,7 +2,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import type { ViteDevServer } from 'vite';
-import { startFixtureServer } from '../helpers/renderer-dev-server';
+import { startFixtureServer, stopFixtureServer } from '../helpers/renderer-dev-server';
 
 /**
  * Token hot-module replacement, proven on an isolated copy of the renderer.
@@ -55,7 +55,7 @@ test.describe('US-003 development token HMR', () => {
 
   test.afterAll(async () => {
     try {
-      await server?.close();
+      await stopFixtureServer(server);
     } finally {
       if (fixture) rmSync(fixture, { recursive: true, force: true });
     }

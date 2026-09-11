@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ViteDevServer } from 'vite';
-import { startFixtureServer } from '../helpers/renderer-dev-server';
+import { startFixtureServer, stopFixtureServer } from '../helpers/renderer-dev-server';
 import { DEV_COMPONENT_GALLERY_PATH } from '../../src/renderer/dev/gallery-path';
 
 /**
@@ -32,14 +32,22 @@ describe('development gallery route', () => {
   }, 120_000);
 
   afterAll(async () => {
-    // Vite's close awaits the dependency optimizer, which can outlive a short
-    // suite. Bound the wait so a slow teardown cannot be read as a failure;
-    // the http listener and the owned port are released by close() itself.
-    await Promise.race([
-      server?.close(),
-      new Promise((resolve) => setTimeout(resolve, 15_000)),
-    ]);
+    // Teardown is checked, not assumed: this server owns a private optimizer
+    // cache directory and must not leave it behind. A failed cleanup fails the
+    // suite rather than quietly leaking into the next run.
+    const outcome = await stopFixtureServer(server);
+    if (!outcome.cacheRemoved) {
+      throw new Error(`dev server left its optimizer cache behind: ${outcome.cacheDir}`);
+    }
   }, 60_000);
+
+  it('runs against a privately cached server, not the checkout-wide cache', () => {
+    // Sharing node_modules/.vite/deps with other servers — including the
+    // previews another session owns — lets one optimizer commit invalidate
+    // another server's modules mid-request.
+    expect(server?.config.cacheDir).toContain('hq-vite-cache-');
+    expect(server?.config.cacheDir).not.toContain('node_modules');
+  });
 
   it('serves the HTML entry for the gallery path, with and without a trailing slash', async () => {
     for (const path of [DEV_COMPONENT_GALLERY_PATH, `${DEV_COMPONENT_GALLERY_PATH}/`]) {

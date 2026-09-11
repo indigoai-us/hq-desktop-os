@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Page, ViteDevServer } from './dev-gallery-types';
-import { startFixtureServer } from './renderer-dev-server';
+import { startFixtureServer, stopFixtureServer } from './renderer-dev-server';
 import { DEV_COMPONENT_GALLERY_PATH } from '../../src/renderer/dev/gallery-path';
 
 /**
@@ -26,14 +26,37 @@ export async function startGalleryServer(port: number): Promise<{
 }
 
 /**
- * Vite's close awaits the dependency optimizer, which can outlive a spec.
- * Bound the wait so a slow teardown never masks or replaces a real failure.
+ * Shut the spec's server down and confirm its optimizer cache was removed, so a
+ * leaked cache directory cannot quietly accumulate or collide with a later run.
  */
 export async function stopGalleryServer(server: ViteDevServer | undefined): Promise<void> {
-  await Promise.race([
-    server?.close(),
-    new Promise((resolve) => setTimeout(resolve, 15_000)),
-  ]);
+  const outcome = await stopFixtureServer(server);
+  if (!outcome.cacheRemoved) {
+    throw new Error(`gallery server left its optimizer cache behind: ${outcome.cacheDir}`);
+  }
+}
+
+/**
+ * Walk keyboard focus to a control the way a keyboard user would.
+ *
+ * This matters beyond tidiness: Radix opens a tooltip on focus only when the
+ * trigger matches `:focus-visible`, which a programmatic `focus()` on a freshly
+ * loaded page does not. Arriving by key press is both the honest interaction and
+ * the one the component answers.
+ */
+export async function tabToTestId(page: Page, testId: string, limit = 30): Promise<void> {
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.body.focus();
+  });
+  for (let step = 0; step < limit; step += 1) {
+    await page.keyboard.press('Tab');
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute('data-testid') ?? null,
+    );
+    if (focused === testId) return;
+  }
+  throw new Error(`keyboard focus never reached ${testId} within ${limit} tabs`);
 }
 
 /** Wait until the gallery has actually mounted, not merely until HTML arrived. */

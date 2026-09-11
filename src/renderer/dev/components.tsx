@@ -105,7 +105,13 @@ function GalleryForm() {
       <div className="hq-gallery-field" aria-busy="true" aria-describedby={pendingId}>
         <Label>Sync progress</Label>
         <Progress value={42} aria-label="Workspace sync" data-testid="gallery-progress" />
-        <p id={pendingId} className="hq-status" data-tone="info" role="status">
+        <p
+          id={pendingId}
+          className="hq-status"
+          data-tone="info"
+          role="status"
+          data-testid="gallery-pending"
+        >
           Pending · 42% complete
         </p>
       </div>

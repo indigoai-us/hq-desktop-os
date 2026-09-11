@@ -1,29 +1,52 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { ViteDevServer } from 'vite';
-import { openGallery, resolveTokenColor, startGalleryServer, stopGalleryServer } from '../helpers/dev-gallery';
+import {
+  openGallery,
+  resolveTokenColor,
+  startGalleryServer,
+  stopGalleryServer,
+  tabToTestId,
+} from '../helpers/dev-gallery';
 
 /**
  * US-004 criterion 3: at 200% zoom, labels, errors, progress and tooltips stay
  * readable and unclipped, with visible focus.
  *
- * Two independent representations of 200%, because neither alone is the whole
- * truth:
+ * Both representations of 200% used here are SURROGATES, deliberately labelled
+ * as such:
  *
- *  1. The page's view of browser zoom — CSS pixels are twice as large, so the
- *     layout viewport halves and devicePixelRatio doubles. This is exactly what
- *     a document observes at 200% zoom on a 1x display, and it is checked as a
- *     magnification (text measured in device pixels doubles), not as a renamed
- *     viewport.
- *  2. Chromium's real `zoom` on the document element, which magnifies the laid
- *     out box tree the way the browser's own zoom does.
+ *  1. A halved CSS layout viewport with deviceScaleFactor 2 — what a document
+ *     observes at 200% zoom on a 1x display. To keep that from being a mere
+ *     renamed viewport, magnification is measured against a real 100% baseline
+ *     context, and the device-pixel figure is only ever used alongside the
+ *     layout and clipping checks, never as visual proof on its own.
+ *  2. Chromium's `zoom` on the document element, which magnifies the laid out
+ *     box tree the way browser zoom does.
  *
- * Neither is an OS-level Ctrl+= keystroke in browser chrome; that stays with the
- * parent's interactive verification.
+ * Neither is a Ctrl+= in browser chrome, an OS display-scaling change, or a
+ * sighted reading of the result. The 200% criterion is not closed by this file
+ * alone; the parent's interactive verification closes it.
  */
 const PORT = 4343;
 const BASE_VIEWPORT = { width: 1280, height: 860 };
 /** Half the CSS viewport: what 200% zoom leaves of the same window. */
 const ZOOMED_VIEWPORT = { width: 640, height: 430 };
+
+/** Everything a user must be able to read on this surface, including feedback. */
+const REQUIRED_SUBJECTS = [
+  'gallery-email',
+  'gallery-email-error',
+  'gallery-pending',
+  'gallery-progress',
+  'gallery-region',
+] as const;
+
+/**
+ * The tooltip is measured on its own, while open. An open tooltip legitimately
+ * overlaps the content near its trigger, so folding it into the same pass would
+ * turn normal overlay behaviour into a false clipping failure.
+ */
+const TOOLTIP_SUBJECT = ['gallery-tooltip-content'] as const;
 
 type Readability = {
   dpr: number;
@@ -31,81 +54,115 @@ type Readability = {
   horizontalOverflow: number;
   canvasFontDevicePx: number;
   titleFontDevicePx: number;
-  clipped: string[];
-  offscreen: string[];
+  missing: string[];
+  selfClipped: string[];
+  outsideViewport: string[];
+  occluded: string[];
   measured: number;
 };
 
 /**
- * Measure what a reader can actually see. `scrollWidth`/`scrollHeight` larger
- * than the client box means the element is cutting its own text off; a rect
- * outside the viewport means the text is off screen with no way to reach it.
+ * Measure what a reader can actually reach.
+ *
+ * Each subject is scrolled to first — vertical scrolling is allowed, losing
+ * content sideways is not — then three separate ways of being unreadable are
+ * checked: the element clipping its own text, the element sitting outside the
+ * viewport horizontally or above it, and an ancestor or overlay covering it.
+ * `elementFromPoint` is what catches ancestor `overflow` clipping, which a
+ * bounding box alone cannot see.
  */
-async function readability(page: Page): Promise<Readability> {
-  return page.evaluate(() => {
-    const subjects = [
-      'gallery-email',
-      'gallery-email-error',
-      'gallery-progress',
-      'gallery-tooltip-content',
-      'gallery-region',
-    ];
-    const clipped: string[] = [];
-    const offscreen: string[] = [];
+async function readability(page: Page, subjects: readonly string[]): Promise<Readability> {
+  return page.evaluate((wanted) => {
+    const missing: string[] = [];
+    const selfClipped: string[] = [];
+    const outsideViewport: string[] = [];
+    const occluded: string[] = [];
     let measured = 0;
-    const scale = window.devicePixelRatio;
 
-    const labels = [...document.querySelectorAll<HTMLElement>('label')].map(
-      (label, index) => ({ id: `label-${index}`, element: label }),
-    );
-    const byTestId = subjects
-      .map((id) => ({ id, element: document.querySelector<HTMLElement>(`[data-testid="${id}"]`) }))
-      .filter((entry): entry is { id: string; element: HTMLElement } => Boolean(entry.element));
+    const targets: { id: string; element: HTMLElement }[] = [
+      ...[...document.querySelectorAll<HTMLElement>('label')].map((element, index) => ({
+        id: `label-${index}`,
+        element,
+      })),
+    ];
+    for (const id of wanted) {
+      const element = document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+      if (!element) {
+        missing.push(id);
+        continue;
+      }
+      targets.push({ id, element });
+    }
 
-    for (const { id, element } of [...labels, ...byTestId]) {
+    for (const { id, element } of targets) {
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
       const rect = element.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) {
-        offscreen.push(`${id}:collapsed`);
+        missing.push(`${id}:collapsed`);
         continue;
       }
       measured += 1;
+
       if (
         element.scrollWidth > Math.ceil(element.clientWidth) + 1 ||
         element.scrollHeight > Math.ceil(element.clientHeight) + 1
       ) {
-        clipped.push(`${id}:${element.scrollWidth}x${element.scrollHeight}`);
+        selfClipped.push(`${id}:${element.scrollWidth}x${element.scrollHeight}`);
       }
-      // Vertical scrolling is fine; sideways loss is not. An element starting
-      // left of the viewport or ending right of it cannot be read.
-      if (rect.left < -1 || rect.right > window.innerWidth + 1 || rect.top < -1) {
-        offscreen.push(`${id}:${Math.round(rect.left)},${Math.round(rect.right)}`);
+      if (
+        rect.left < -1 ||
+        rect.right > window.innerWidth + 1 ||
+        rect.bottom < -1 ||
+        rect.top > window.innerHeight + 1
+      ) {
+        outsideViewport.push(
+          `${id}:${Math.round(rect.left)},${Math.round(rect.right)},${Math.round(rect.top)}`,
+        );
+        continue;
+      }
+      // Ancestor overflow or an overlay hiding the subject: ask the document
+      // what is actually painted at the subject's midpoint.
+      const x = Math.min(Math.max(rect.left + rect.width / 2, 1), window.innerWidth - 1);
+      const y = Math.min(Math.max(rect.top + rect.height / 2, 1), window.innerHeight - 1);
+      const hit = document.elementFromPoint(x, y);
+      if (!hit || !(element.contains(hit) || hit.contains(element))) {
+        occluded.push(`${id}:${hit?.tagName ?? 'none'}`);
       }
     }
 
     const root = document.documentElement;
     return {
-      dpr: scale,
+      dpr: window.devicePixelRatio,
       layoutWidth: root.clientWidth,
       horizontalOverflow: root.scrollWidth - root.clientWidth,
-      canvasFontDevicePx: parseFloat(getComputedStyle(document.body).fontSize) * scale,
+      canvasFontDevicePx:
+        parseFloat(getComputedStyle(document.body).fontSize) * window.devicePixelRatio,
       titleFontDevicePx:
-        parseFloat(getComputedStyle(document.querySelector('h1')!).fontSize) * scale,
-      clipped,
-      offscreen,
+        parseFloat(getComputedStyle(document.querySelector('h1')!).fontSize) *
+        window.devicePixelRatio,
+      missing,
+      selfClipped,
+      outsideViewport,
+      occluded,
       measured,
     };
-  });
+  }, subjects);
 }
 
-/** Focus the tooltip trigger from the keyboard so its content is on screen. */
+/**
+ * Reveal the tooltip the way a keyboard user does. Radix opens on focus only
+ * when the trigger matches `:focus-visible`, which a programmatic `focus()` on
+ * a freshly loaded page does not — so arriving by key press is both the honest
+ * interaction and the one the component answers.
+ */
 async function revealTooltip(page: Page): Promise<void> {
-  await page.getByTestId('gallery-tooltip-trigger').focus();
+  await tabToTestId(page, 'gallery-tooltip-trigger');
   await expect(page.getByRole('tooltip')).toBeVisible();
 }
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('US-004 readability at 200% zoom', () => {
+test.describe('US-004 readability at a 200% zoom surrogate', () => {
   let server: ViteDevServer | undefined;
   let url = '';
 
@@ -133,31 +190,45 @@ test.describe('US-004 readability at 200% zoom', () => {
       const zoomedPage = await zoomedContext.newPage();
       await openGallery(baselinePage, url);
       await openGallery(zoomedPage, url);
-      await revealTooltip(baselinePage);
-      await revealTooltip(zoomedPage);
 
-      const baseline = await readability(baselinePage);
-      const zoomed = await readability(zoomedPage);
+      const baseline = await readability(baselinePage, REQUIRED_SUBJECTS);
+      const zoomed = await readability(zoomedPage, REQUIRED_SUBJECTS);
 
-      // This really is 200%: the same text occupies twice the device pixels.
+      // Every required subject was present to measure — a missing subject must
+      // never read as "nothing was clipped".
+      expect(zoomed.missing).toEqual([]);
+      expect(zoomed.measured).toBeGreaterThanOrEqual(REQUIRED_SUBJECTS.length + 2);
+      expect(baseline.missing).toEqual([]);
+
+      // The surrogate behaves like magnification: the same text occupies twice
+      // the device pixels, and the layout reflowed into half the CSS width.
       expect(baseline.dpr).toBe(1);
       expect(zoomed.dpr).toBe(2);
       expect(zoomed.canvasFontDevicePx).toBeCloseTo(baseline.canvasFontDevicePx * 2, 1);
       expect(zoomed.titleFontDevicePx).toBeCloseTo(baseline.titleFontDevicePx * 2, 1);
-      // And the layout really did reflow into half the CSS width.
       expect(zoomed.layoutWidth).toBeLessThanOrEqual(baseline.layoutWidth / 2);
 
-      // Reflow: content fits the narrower viewport without sideways scrolling.
+      // Reflow: no second scrolling direction.
       expect(zoomed.horizontalOverflow).toBeLessThanOrEqual(1);
 
-      // Nothing a user must read is cut off or pushed out of reach.
-      expect(zoomed.measured).toBeGreaterThanOrEqual(4);
-      expect(zoomed.clipped).toEqual([]);
-      expect(zoomed.offscreen).toEqual([]);
-      // The error text is still the full sentence, not an ellipsis.
+      // Three independent ways of being unreadable, each asserted.
+      expect(zoomed.selfClipped).toEqual([]);
+      expect(zoomed.outsideViewport).toEqual([]);
+      expect(zoomed.occluded).toEqual([]);
+
+      // The tooltip, measured while it is actually open.
+      await revealTooltip(zoomedPage);
+      const tooltip = await readability(zoomedPage, TOOLTIP_SUBJECT);
+      expect(tooltip.missing).toEqual([]);
+      expect(tooltip.selfClipped).toEqual([]);
+      expect(tooltip.outsideViewport).toEqual([]);
+      expect(tooltip.occluded).toEqual([]);
+
+      // The error is still the whole sentence, not an ellipsis.
       await expect(zoomedPage.getByTestId('gallery-email-error')).toHaveText(
         /Enter an email that includes @\. Color is not the only signal/,
       );
+      await expect(zoomedPage.getByTestId('gallery-pending')).toHaveText(/Pending · 42% complete/);
       await expect(zoomedPage.getByRole('progressbar')).toBeVisible();
       await expect(zoomedPage.getByRole('tooltip')).toBeVisible();
     } finally {
@@ -166,7 +237,64 @@ test.describe('US-004 readability at 200% zoom', () => {
     }
   });
 
-  test('keeps focus visible at 200% zoom', async ({ browser }) => {
+  test('keeps open overlay content readable at the zoom surrogate', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: ZOOMED_VIEWPORT, deviceScaleFactor: 2 });
+    try {
+      const page = await context.newPage();
+      await openGallery(page, url);
+
+      // Dialog: opened from the keyboard, measured while open.
+      await tabToTestId(page, 'gallery-dialog-open');
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('dialog')).toBeVisible();
+      const dialog = await page.evaluate(() => {
+        const content = document.querySelector<HTMLElement>('[data-slot="dialog-content"]')!;
+        const rect = content.getBoundingClientRect();
+        const title = content.querySelector<HTMLElement>('[data-slot="dialog-title"]')!;
+        const description = content.querySelector<HTMLElement>('[data-slot="dialog-description"]')!;
+        const overflows = (element: HTMLElement) =>
+          element.scrollWidth > Math.ceil(element.clientWidth) + 1 ||
+          element.scrollHeight > Math.ceil(element.clientHeight) + 1;
+        return {
+          withinViewport:
+            rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.top >= -1,
+          titleClipped: overflows(title),
+          descriptionClipped: overflows(description),
+          horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      expect(dialog.withinViewport).toBe(true);
+      expect(dialog.titleClipped).toBe(false);
+      expect(dialog.descriptionClipped).toBe(false);
+      expect(dialog.horizontalOverflow).toBeLessThanOrEqual(1);
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+
+      // Select: the popover content is portaled and positioned, so it is the
+      // most likely thing to be pushed off a narrow viewport.
+      await tabToTestId(page, 'gallery-region');
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('listbox')).toBeVisible();
+      const options = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => {
+          const rect = option.getBoundingClientRect();
+          return {
+            text: option.textContent?.trim(),
+            within: rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.height > 0,
+            clipped: option.scrollWidth > Math.ceil(option.clientWidth) + 1,
+          };
+        }),
+      );
+      expect(options.length).toBe(3);
+      expect(options.filter((option) => !option.within)).toEqual([]);
+      expect(options.filter((option) => option.clipped)).toEqual([]);
+      await page.keyboard.press('Escape');
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('keeps focus visible at the zoom surrogate', async ({ browser }) => {
     const context = await browser.newContext({ viewport: ZOOMED_VIEWPORT, deviceScaleFactor: 2 });
     try {
       const page = await context.newPage();
@@ -174,11 +302,9 @@ test.describe('US-004 readability at 200% zoom', () => {
       const ring = await resolveTokenColor(page, '--ring');
 
       for (const testId of ['gallery-email', 'gallery-region', 'gallery-dialog-open']) {
-        const target = page.getByTestId(testId);
         // Arrive by key press, so `:focus-visible` is the state under test.
-        await target.focus();
-        await page.keyboard.press('Tab');
-        await page.keyboard.press('Shift+Tab');
+        await tabToTestId(page, testId);
+        const target = page.getByTestId(testId);
         await expect(target).toBeFocused();
         const focus = await target.evaluate((element: HTMLElement) => {
           const style = getComputedStyle(element);
@@ -203,7 +329,7 @@ test.describe('US-004 readability at 200% zoom', () => {
     }
   });
 
-  test('stays unclipped under the browser zoom property as well', async ({ browser }) => {
+  test('stays unclipped under the CSS zoom surrogate as well', async ({ browser }) => {
     const context = await browser.newContext({ viewport: BASE_VIEWPORT, deviceScaleFactor: 1 });
     try {
       const page = await context.newPage();
@@ -212,21 +338,29 @@ test.describe('US-004 readability at 200% zoom', () => {
         .getByTestId('gallery-email-error')
         .evaluate((element) => element.getBoundingClientRect().height);
 
-      // Chromium's own zoom on the root element: the box tree is magnified.
+      // Chromium's own zoom on the document element: the box tree is magnified.
       await page.evaluate(() => {
         document.documentElement.style.zoom = '2';
       });
-      await revealTooltip(page);
       const after = await page
         .getByTestId('gallery-email-error')
         .evaluate((element) => element.getBoundingClientRect().height);
       expect(after).toBeGreaterThan(before * 1.8);
 
-      const measured = await readability(page);
+      const measured = await readability(page, REQUIRED_SUBJECTS);
+      expect(measured.missing).toEqual([]);
       expect(measured.horizontalOverflow).toBeLessThanOrEqual(1);
-      expect(measured.clipped).toEqual([]);
+      expect(measured.selfClipped).toEqual([]);
+      expect(measured.outsideViewport).toEqual([]);
+      expect(measured.occluded).toEqual([]);
       await expect(page.getByTestId('gallery-email-error')).toBeVisible();
-      await expect(page.getByRole('tooltip')).toBeVisible();
+      await expect(page.getByTestId('gallery-pending')).toBeVisible();
+
+      await revealTooltip(page);
+      const tooltip = await readability(page, TOOLTIP_SUBJECT);
+      expect(tooltip.missing).toEqual([]);
+      expect(tooltip.selfClipped).toEqual([]);
+      expect(tooltip.outsideViewport).toEqual([]);
     } finally {
       await context.close();
     }

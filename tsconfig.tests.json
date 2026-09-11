@@ -21,6 +21,7 @@
   },
   "include": [
     "tests/**/*.ts",
+    "tests/**/*.tsx",
     "__tests__/**/*.ts",
     "playwright.config.ts",
     "playwright.electron.config.ts",

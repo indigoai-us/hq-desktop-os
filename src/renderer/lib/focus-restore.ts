@@ -19,8 +19,15 @@ function asFocusable(candidate: Element | null | undefined): HTMLElement | null 
 }
 
 /**
- * Restore keyboard focus to the first still-connected candidate.
- * Returns true when focus was moved to a live element.
+ * Restore keyboard focus to the first candidate that actually accepts it.
+ *
+ * Calling `focus()` is a request, not a result: a disabled, `inert`, hidden or
+ * otherwise unfocusable element leaves the active element exactly where it was,
+ * usually `<body>`. So each candidate is verified after the call and the search
+ * continues when focus did not land, which is what keeps a keyboard user off
+ * `<body>` when the opener is still mounted but no longer focusable.
+ *
+ * Returns true only when focus is genuinely on a live element.
  */
 export function restoreFocusSafely(targets: FocusRestoreTarget = {}): boolean {
   const selectorMatch =
@@ -35,11 +42,14 @@ export function restoreFocusSafely(targets: FocusRestoreTarget = {}): boolean {
   for (const candidate of ordered) {
     const el = asFocusable(candidate);
     if (!el) continue;
-    if (el.tabIndex < 0 && !el.hasAttribute('tabindex')) {
-      el.tabIndex = -1;
-    }
+    const added = el.tabIndex < 0 && !el.hasAttribute('tabindex');
+    if (added) el.tabIndex = -1;
     el.focus({ preventScroll: true });
-    return true;
+    if (typeof document === 'undefined') return true;
+    const active = document.activeElement;
+    if (active === el || el.contains(active)) return true;
+    // Focus was refused. Undo the tabindex we added so the DOM is left as found.
+    if (added) el.removeAttribute('tabindex');
   }
   return false;
 }
