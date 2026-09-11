@@ -32,7 +32,13 @@ export function createPreviewClient(): CompanionClient {
     state.setup.error = 'There is already an HQ folder here. Choose another folder or use your existing one.';
   }
   if (['connected', 'offline', 'conflict', 'paused'].includes(scenario ?? '')) {
-    attach(); state.account = { status: 'connected', label: 'Alex' }; state.syncScopes = [{ id: 'personal', label: 'My personal work' }, { id: 'cmp_example', label: 'My team' }]; state.selectedSyncScope = 'personal';
+    attach(); state.account = { status: 'connected', label: 'Alex' };
+    state.syncScopes = [
+      { id: 'all', label: 'Everything I’m part of (2)' },
+      { id: 'personal', label: 'My personal work only' },
+      { id: 'cmp_example', label: 'My team' },
+    ];
+    state.selectedSyncScope = 'all';
     state.sync = {
       phase: scenario === 'connected' ? 'idle' : scenario as 'offline' | 'conflict' | 'paused',
       lastSuccess: '2026-09-11T00:00:00Z',
@@ -54,9 +60,25 @@ export function createPreviewClient(): CompanionClient {
     if (request.action === 'attach-workspace') attach();
     if (request.action === 'select-workspace') state.activeWorkspaceId = request.workspaceId!;
     if (request.action === 'remove-workspace') { state.workspaces = state.workspaces.filter(w => w.id !== request.workspaceId); state.activeWorkspaceId = state.workspaces[0]?.id ?? null; delete state.setup; }
-    if (request.action === 'sign-in') { state.syncScopes = []; state.selectedSyncScope = undefined; state.account = { status: 'connected', label: 'Alex' }; state.sync.phase = 'paused'; state.sync.message = 'Sync is paused'; }
+    if (request.action === 'sign-in') {
+      state.account = { status: 'connected', label: 'Alex' };
+      state.syncScopes = [
+        { id: 'all', label: 'Everything I’m part of (2)' },
+        { id: 'personal', label: 'My personal work only' },
+        { id: 'cmp_example', label: 'My team' },
+      ];
+      state.selectedSyncScope = 'all';
+      state.sync = { phase: 'syncing', message: 'Connecting your files', lastSuccess: null, conflicts: 0, conflictPaths: [] };
+    }
     if (request.action === 'sign-out') { state.syncScopes = []; state.selectedSyncScope = undefined; state.account = { status: 'signed-out', label: null }; state.sync = { phase: 'not-connected', lastSuccess: null, message: 'Sign in to sync your files.', conflicts: 0, conflictPaths: [] }; }
-    if (request.action === 'load-sync-scopes') state.syncScopes = [{ id: 'personal', label: 'My personal work' }, { id: 'cmp_example', label: 'My team' }];
+    if (request.action === 'load-sync-scopes') {
+      state.syncScopes = [
+        { id: 'all', label: 'Everything I’m part of (2)' },
+        { id: 'personal', label: 'My personal work only' },
+        { id: 'cmp_example', label: 'My team' },
+      ];
+      state.selectedSyncScope = 'all';
+    }
     if (request.action === 'select-sync-scope') { state.selectedSyncScope = request.scopeId; state.sync = { phase: 'paused', message: 'Ready when you are', lastSuccess: null, conflicts: 0, conflictPaths: [] }; }
     if (request.action === 'set-preference') state.preferences[request.preference!] = request.enabled!;
     if (request.action === 'pause-sync') { state.sync.phase = 'paused'; state.sync.message = 'Sync is paused'; }

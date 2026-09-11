@@ -3,19 +3,36 @@ import { join } from 'node:path';
 import type { AccountSession } from './auth.js';
 export const VAULT_URL = 'https://hqapi.hq.computer';
 export interface SyncScope { id: string; label: string }
+/** Fan-out id for hq-cloud `--companies` (personal + every active membership). */
+export const ALL_SYNC_SCOPE = 'all';
+export function isSyncScopeId(scopeId: string): boolean {
+  return scopeId === ALL_SYNC_SCOPE || scopeId === 'personal' || /^cmp_[a-zA-Z0-9]+$/.test(scopeId);
+}
+function membershipLabel(member: Record<string, unknown>, index: number): string {
+  // GET /membership/me enriches with companyName / companySlug (hq-desktop-app).
+  for (const key of ['companyName', 'name', 'companySlug', 'slug'] as const) {
+    const value = member[key];
+    if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 120);
+  }
+  return `Shared workspace ${index}`;
+}
 export function membershipScopes(raw: unknown): SyncScope[] {
   if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { memberships?: unknown }).memberships)) throw new Error('Your shared workspaces could not be loaded. Please try again.');
-  const scopes: SyncScope[] = [{ id: 'personal', label: 'My personal work' }];
+  const companies: SyncScope[] = [];
   for (const row of (raw as { memberships: unknown[] }).memberships) {
     if (!row || typeof row !== 'object') throw new Error('Your shared workspaces could not be loaded.');
     const member = row as Record<string, unknown>;
     if (member.status !== 'active') continue;
     if (typeof member.companyUid !== 'string' || !/^cmp_[a-zA-Z0-9]+$/.test(member.companyUid)) throw new Error('Your shared workspaces could not be loaded.');
-    if (scopes.some(scope => scope.id === member.companyUid)) continue;
-    const name = typeof member.name === 'string' ? member.name : typeof member.slug === 'string' ? member.slug : undefined;
-    scopes.push({ id: member.companyUid, label: name?.trim().slice(0, 120) || `Shared workspace ${scopes.length}` });
+    if (companies.some(scope => scope.id === member.companyUid)) continue;
+    companies.push({ id: member.companyUid, label: membershipLabel(member, companies.length + 1) });
   }
-  return scopes;
+  // Match hq-desktop-app Sync Now: personal + all active companies in one pass.
+  return [
+    { id: ALL_SYNC_SCOPE, label: companies.length ? `Everything I’m part of (${companies.length + 1})` : 'My personal work' },
+    { id: 'personal', label: 'My personal work only' },
+    ...companies,
+  ];
 }
 export async function loadScopes(account: AccountSession): Promise<SyncScope[]> {
   // The pinned SDK strips projected name/slug fields; consume this one public

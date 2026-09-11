@@ -10,9 +10,11 @@ describe('saved sync intent', () => {
     try {
       const store = new SyncSelectionStore(directory);
       expect(await store.read('/HQ', 'alice')).toBeUndefined();
-      const choice = { root: '/HQ', sub: 'alice', scope: 'cmp_A', enabled: true };
+      const choice = { root: '/HQ', sub: 'alice', scope: 'all', enabled: true };
       await store.save(choice);
       expect(await new SyncSelectionStore(directory).read('/HQ', 'alice')).toEqual(choice);
+      await store.save({ ...choice, scope: 'cmp_A' });
+      expect(await new SyncSelectionStore(directory).read('/HQ', 'alice')).toMatchObject({ scope: 'cmp_A' });
       expect(await store.read('/other', 'alice')).toBeUndefined();
       expect(await store.read('/HQ', 'bob')).toBeUndefined();
       await store.save({ ...choice, enabled: false });

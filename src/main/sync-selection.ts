@@ -11,7 +11,7 @@ export class SyncSelectionStore {
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
     if (!value || typeof value !== 'object') throw new Error('Your saved sync choice could not be read.');
     const saved = value as SyncSelection;
-    if (typeof saved.root !== 'string' || typeof saved.sub !== 'string' || typeof saved.scope !== 'string' || typeof saved.enabled !== 'boolean' || (saved.scope !== 'personal' && !/^cmp_[a-zA-Z0-9]+$/.test(saved.scope))) throw new Error('Your saved sync choice could not be read.');
+    if (typeof saved.root !== 'string' || typeof saved.sub !== 'string' || typeof saved.scope !== 'string' || typeof saved.enabled !== 'boolean' || (saved.scope !== 'all' && saved.scope !== 'personal' && !/^cmp_[a-zA-Z0-9]+$/.test(saved.scope))) throw new Error('Your saved sync choice could not be read.');
     return saved.root === root && saved.sub === sub ? saved : undefined;
   }
   async save(selection: SyncSelection): Promise<void> {

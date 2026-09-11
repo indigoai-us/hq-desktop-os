@@ -114,8 +114,13 @@ export class AccountSession {
     if (signal.aborted || generation !== this.generation) { await this.store.clear(); throw new Error('Sign-in was canceled.'); }
     this.tokens = tokens; this.identity = identity;
   }
+  /**
+   * Vault/API bearer — access token, matching hq-desktop-app `resolve_jwt`.
+   * Identity still comes from the verified id token; never send the id token
+   * to `/membership/me` or the sync runner.
+   */
   async bearer(): Promise<string> {
-    if (this.tokens && this.identity && this.tokens.expiresAt > Date.now() + 60_000) return this.tokens.idToken;
+    if (this.tokens && this.identity && this.tokens.expiresAt > Date.now() + 60_000) return this.tokens.accessToken;
     if (this.refreshing) return this.refreshing;
     const generation = this.generation;
     this.refreshing = (async () => {
@@ -127,7 +132,7 @@ export class AccountSession {
       await this.store.write(tokens);
       if (generation !== this.generation) throw new Error('Sign in to continue.');
       this.tokens = tokens; this.identity = identity;
-      return tokens.idToken;
+      return tokens.accessToken;
     })().catch(async (error: unknown) => {
       if (error instanceof SignInRequired && generation === this.generation) await this.signOut();
       throw error;

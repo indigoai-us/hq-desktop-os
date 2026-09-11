@@ -11,7 +11,8 @@ import { SecureTokenStore, secureStorageAvailable } from './secure-tokens.js';
 import { PreferenceStore, setLinuxAutostart, startupExecutable } from './preferences.js';
 import { SyncSelectionStore } from './sync-selection.js';
 import { SyncSupervisor } from './sync-supervisor.js';
-import { loadScopes, ensurePersonalStorage, WorkspaceAccounts, type SyncScope } from './sync-scopes.js';
+import { pausedSync } from './sync-state.js';
+import { ALL_SYNC_SCOPE, loadScopes, ensurePersonalStorage, WorkspaceAccounts, type SyncScope } from './sync-scopes.js';
 import { WorkspaceRegistry } from './workspaces.js';
 import { HealthCommandLedger } from './health/commands.js';
 import { runHealthProbes } from './health/probes.js';
@@ -67,7 +68,16 @@ export class CompanionService {
     if (saved.enabled && !this.closing && !this.restoreCanceled) await this.startSync(true);
   }
   private readonly workspaceAccounts = new WorkspaceAccounts(app.getPath('userData'));
-  private async refreshScopes(): Promise<void> { this.scopes = await loadScopes(this.account); if (!this.scopes.some(scope => scope.id === this.selectedScope)) this.selectedScope = undefined; }
+  private async refreshScopes(): Promise<void> {
+    this.scopes = await loadScopes(this.account);
+    if (!this.scopes.some(scope => scope.id === this.selectedScope)) this.selectedScope = undefined;
+  }
+  /** After OAuth: list memberships (like hq-desktop-app) and prefer `--companies` fanout. */
+  private async prepareScopesAfterAuth(): Promise<void> {
+    await this.refreshScopes();
+    if (this.scopes.some(scope => scope.id === ALL_SYNC_SCOPE)) this.selectedScope = ALL_SYNC_SCOPE;
+    else if (!this.selectedScope && this.scopes[0]) this.selectedScope = this.scopes[0].id;
+  }
   private async startSync(restoring = false): Promise<void> {
     if (this.closing) throw new Error('HQ is closing.');
     if (this.loginAbort) throw new Error('Finish signing in before starting sync.');
@@ -75,7 +85,11 @@ export class CompanionService {
     const id = this.registry.snapshot.activeWorkspaceId;
     if (!id) throw new Error('Choose a workspace first.');
     await this.refreshScopes();
-    if (!this.selectedScope) throw new Error('Choose which work to keep on this computer.');
+    if (!this.selectedScope) {
+      if (this.scopes.some(scope => scope.id === ALL_SYNC_SCOPE)) this.selectedScope = ALL_SYNC_SCOPE;
+      else throw new Error('Choose which work to keep on this computer.');
+    }
+    if (!this.scopes.some(scope => scope.id === this.selectedScope)) throw new Error('This shared workspace is no longer available.');
     const root = await this.registry.verifiedRoot(id);
     if (!this.account.identity) throw new Error('Sign in to continue.');
     await this.workspaceAccounts.bind(root, this.account.identity.sub);
@@ -122,7 +136,28 @@ export class CompanionService {
     if (this.loginAbort) throw new Error('A sign-in window is already open.');
     if (!secureStorageAvailable()) throw new Error('Unlock your computer’s secure password storage, then try signing in again.');
     this.accountError = undefined; this.loginAbort = new AbortController();
-    this.loginJob = this.account.signIn(url => shell.openExternal(url), this.loginAbort.signal).catch((error: unknown) => {
+    const signal = this.loginAbort.signal;
+    this.loginJob = this.account.signIn(url => shell.openExternal(url), signal).then(async () => {
+      if (this.closing || signal.aborted) return;
+      // Sign-in finished; clear the in-flight gate so startSync may run.
+      this.loginAbort = undefined;
+      try {
+        // Mirror hq-desktop-app: memberships load from vault immediately after
+        // Cognito succeeds, then the runner can fan out across them.
+        await this.prepareScopesAfterAuth();
+        await this.saveSyncChoice(false);
+        this.sync.state = { ...pausedSync(), message: this.registry.snapshot.activeWorkspaceId ? 'Ready when you are' : 'Choose a workspace to get started' };
+        if (this.registry.snapshot.activeWorkspaceId && this.selectedScope && !this.closing && !signal.aborted) {
+          await this.startSync();
+        }
+      } catch (error: unknown) {
+        console.error('Shared workspaces could not be prepared after sign-in', error instanceof Error ? error.name : 'unknown');
+        this.accountError = error instanceof Error && error.name === 'Error' && !(error as NodeJS.ErrnoException).code
+          ? error.message
+          : 'You are signed in, but your shared workspaces could not be loaded. Check your connection and try Choose your work again.';
+        this.sync.state = { ...this.sync.state, phase: 'error', message: 'Your shared workspaces could not be loaded.' };
+      }
+    }).catch((error: unknown) => {
       console.error('Account sign-in did not finish', error instanceof Error ? error.name : 'unknown');
       this.accountError = error instanceof Error && error.name === 'Error' && !(error as NodeJS.ErrnoException).code ? error.message : 'Your account could not be connected. Check your connection and try again.';
     }).finally(() => { this.loginAbort = undefined; });
@@ -282,7 +317,7 @@ export class CompanionService {
         case 'cancel-setup': this.setupAbort?.abort(); await this.setupJob; break;
         case 'sign-in': await this.sync.reset(); await this.saveSyncChoice(false); this.scopes = []; this.selectedScope = undefined; this.startSignIn(); break;
         case 'cancel-sign-in': this.loginAbort?.abort(); await this.loginJob; break;
-        case 'load-sync-scopes': await this.refreshScopes(); break;
+        case 'load-sync-scopes': await this.prepareScopesAfterAuth(); await this.saveSyncChoice(false); break;
         case 'select-sync-scope': await this.sync.reset(); await this.refreshScopes(); if (!this.scopes.some(scope => scope.id === request.scopeId)) throw new Error('This shared workspace is no longer available.'); this.selectedScope = request.scopeId; await this.saveSyncChoice(false); break;
         case 'pause-sync': await this.pauseSync(); break;
         case 'resume-sync': await this.startSync(); break;
