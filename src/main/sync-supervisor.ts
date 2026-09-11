@@ -17,12 +17,15 @@ export class SyncSupervisor {
    */
   start(root: string, scopeId: string, env: NodeJS.ProcessEnv, onConflict: ConflictChoice = 'abort'): void {
     if (this.child || this.stopping) throw new Error('Wait for sync to stop before starting again.');
-    if (scopeId !== 'personal' && !/^cmp_[a-zA-Z0-9]+$/.test(scopeId)) throw new Error('Choose a shared workspace again.');
+    if (scopeId !== 'all' && scopeId !== 'personal' && !/^cmp_[a-zA-Z0-9]+$/.test(scopeId)) throw new Error('Choose a shared workspace again.');
     if (!['abort', 'keep', 'publish-local', 'overwrite'].includes(onConflict)) throw new Error('Choose how to resolve conflicting files.');
     const expectedSub = this.account.identity?.sub;
     if (!expectedSub) throw new Error('Sign in before starting sync.');
     this.state = { ...pausedSync(), phase: 'syncing', message: 'Connecting your files' };
-    const child = fork(join(__dirname, 'sync-child.js'), ['--hq-root', root, ...(scopeId === 'personal' ? ['--personal'] : ['--company', scopeId]), '--direction', 'both', '--on-conflict', onConflict, '--watch', '--event-push'], {
+    // `all` → hq-cloud `--companies` fanout (personal + every active membership),
+    // matching hq-desktop-app Sync Now. Single targets stay explicit.
+    const scopeArgs = scopeId === 'all' ? ['--companies'] : scopeId === 'personal' ? ['--personal'] : ['--company', scopeId];
+    const child = fork(join(__dirname, 'sync-child.js'), ['--hq-root', root, ...scopeArgs, '--direction', 'both', '--on-conflict', onConflict, '--watch', '--event-push'], {
       execPath: process.execPath, execArgv: [], detached: process.platform !== 'win32', cwd: root, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     this.child = child;

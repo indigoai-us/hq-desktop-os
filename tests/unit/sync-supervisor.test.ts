@@ -27,6 +27,13 @@ describe('owned sync process lifecycle', () => {
     fixture();
     expect(vi.mocked(fork).mock.calls[0]?.[1]).toEqual(expect.arrayContaining(['--on-conflict', 'abort']));
   });
+  it('fans out with --companies for the all scope like hq-desktop-app', () => {
+    const { child, sync } = fixture();
+    child.emit('close', 0);
+    sync.start('/tmp/HQ', 'all', { HOME: '/tmp/home' });
+    expect(vi.mocked(fork).mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining(['--companies', '--direction', 'both']));
+    expect(vi.mocked(fork).mock.calls.at(-1)?.[1]).not.toEqual(expect.arrayContaining(['--personal']));
+  });
   it('restarts with an explicit one-shot conflict strategy when requested', () => {
     const { child, sync } = fixture();
     child.emit('close', 0);

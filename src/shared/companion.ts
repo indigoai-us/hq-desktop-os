@@ -55,7 +55,7 @@ export function parseCompanionAction(raw: unknown): CompanionAction | null {
   const needsId = ['select-workspace', 'remove-workspace', 'open-folder', 'open-terminal'].includes(String(record.action));
   if (needsId && (typeof record.workspaceId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(record.workspaceId))) return null;
   if (!needsId && record.workspaceId !== undefined) return null;
-  if (record.action === 'select-sync-scope') { if (typeof record.scopeId !== 'string' || !/^(personal|cmp_[a-zA-Z0-9]+)$/.test(record.scopeId)) return null; }
+  if (record.action === 'select-sync-scope') { if (typeof record.scopeId !== 'string' || !/^(all|personal|cmp_[a-zA-Z0-9]+)$/.test(record.scopeId)) return null; }
   else if (record.scopeId !== undefined) return null;
   if (record.action === 'set-preference') { if (!['closeToTray', 'launchAtLogin'].includes(String(record.preference)) || typeof record.enabled !== 'boolean') return null; }
   else if (record.preference !== undefined || record.enabled !== undefined) return null;

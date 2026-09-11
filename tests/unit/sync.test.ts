@@ -33,14 +33,26 @@ describe('truthful sync status', () => {
   });
 });
 describe('account-scoped work selection', () => {
-  it('accepts projected names only from active memberships, with no global lookup', () => {
-    expect(membershipScopes({ memberships: [{ companyUid: 'cmp_A', status: 'active', name: 'Example team' }, { companyUid: 'cmp_A', status: 'active' }, { companyUid: 'cmp_B', status: 'revoked', name: 'Old team' }] })).toEqual([{ id: 'personal', label: 'My personal work' }, { id: 'cmp_A', label: 'Example team' }]);
+  it('accepts projected companyName from active memberships and offers an all fan-out', () => {
+    expect(membershipScopes({
+      memberships: [
+        { companyUid: 'cmp_A', status: 'active', companyName: 'Example team' },
+        { companyUid: 'cmp_A', status: 'active', companyName: 'Example team' },
+        { companyUid: 'cmp_B', status: 'revoked', companyName: 'Old team' },
+      ],
+    })).toEqual([
+      { id: 'all', label: 'Everything I’m part of (2)' },
+      { id: 'personal', label: 'My personal work only' },
+      { id: 'cmp_A', label: 'Example team' },
+    ]);
+    expect(membershipScopes({ memberships: [{ companyUid: 'cmp_A', status: 'active', name: 'Legacy name' }] })[2]).toEqual({ id: 'cmp_A', label: 'Legacy name' });
     expect(() => membershipScopes({ error: 'unavailable' })).toThrow();
     expect(() => membershipScopes({ memberships: [{ companyUid: '../../other', status: 'active' }] })).toThrow();
   });
   it('never interprets paths or shell syntax as a selected scope', () => {
     for (const scopeId of ['/home/user', '--companies', 'cmp_A;echo', 'cmp_A/../B']) expect(parseCompanionAction({ action: 'select-sync-scope', scopeId })).toBeNull();
     expect(parseCompanionAction({ action: 'select-sync-scope', scopeId: 'personal' })).toEqual({ action: 'select-sync-scope', scopeId: 'personal' });
+    expect(parseCompanionAction({ action: 'select-sync-scope', scopeId: 'all' })).toEqual({ action: 'select-sync-scope', scopeId: 'all' });
     expect(parseCompanionAction({ action: 'sign-in', scopeId: 'personal' })).toBeNull();
   });
   it('accepts only engine conflict choices and relative paths for resolve-conflicts', () => {
