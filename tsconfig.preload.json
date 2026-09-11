@@ -9,10 +9,11 @@
     "types": [
       "node"
     ],
-    "rootDir": "src/preload",
-    "outDir": "dist/preload"
+    "rootDir": "src",
+    "noEmit": true
   },
   "include": [
-    "src/preload/**/*.ts"
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts"
   ]
 }

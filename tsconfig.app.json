@@ -13,10 +13,11 @@
     ],
     "jsx": "react-jsx",
     "noEmit": true,
-    "rootDir": "src/renderer"
+    "rootDir": "src"
   },
   "include": [
     "src/renderer/**/*.ts",
-    "src/renderer/**/*.tsx"
+    "src/renderer/**/*.tsx",
+    "src/shared/**/*.ts"
   ]
 }

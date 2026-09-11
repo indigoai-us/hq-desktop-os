@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 export function includeCheckoutPath(source: string): boolean {
   // Normalize both native path styles so exclusions also work on Windows.
   const name = basename(source.replaceAll('\\', '/'));
-  return !['node_modules', '.git', 'dist', 'test-results', 'playwright-report'].includes(name);
+  return !['node_modules', '.git', 'dist', 'dist-runtime', '.scratch', 'test-results', 'playwright-report'].includes(name);
 }
 
 export function pnpmInvocation(node: string, cli: string | undefined, args: string[]) {
