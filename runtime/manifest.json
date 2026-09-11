@@ -100,14 +100,18 @@
       "shutdown": "covered",
       "workspaceRegistry": "covered",
       "credentialLifecycle": "covered",
-      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts)."
+      "guidedSetup": "covered",
+      "companySelection": "covered",
+      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts). Guided setup journal + crash recovery (setup-state.ts / tests/native/setup.test.ts); membership discovery keeps explicit retry state and opens hq.computer create/invite web flows with focus-return refresh."
     },
     "windows": {
       "childProcessIpc": "deferred",
       "shutdown": "deferred",
       "workspaceRegistry": "deferred",
       "credentialLifecycle": "deferred",
-      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance); prepare-runtime records the gap without blocking Linux acceptance."
+      "guidedSetup": "deferred",
+      "companySelection": "deferred",
+      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance and Windows guided setup); prepare-runtime records the gap without blocking Linux acceptance."
     },
     "wsl2": {
       "childProcessIpc": "deferred",

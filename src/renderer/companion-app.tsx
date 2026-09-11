@@ -5,10 +5,12 @@ import { HEALTH_PREVIEW_FIXTURES } from '../shared/health-fixtures';
 import { createCompanionClient, type CompanionClient } from './companion-client';
 import { HqMark } from './components/hq-mark';
 import { ConflictList } from './components/conflict-list';
+import { CompanyPicker } from './components/company-picker';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { AccountScreen } from './screens/account';
 import { SettingsScreen } from './screens/settings';
+import { SetupScreen } from './screens/setup';
 
 const sections = [{ name: 'Workspace', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
 type Section = typeof sections[number]['name'];
@@ -155,13 +157,15 @@ export function CompanionApp() {
       {signingIn && <div role="status" className="notice">Finish signing in through your browser.<Button variant="ghost" disabled={!!pending} onClick={() => void run({ action: 'cancel-sign-in' }, 'Canceling sign-in')}>Cancel sign-in</Button></div>}
       {pending && <p role="status" className="notice" data-testid="companion-pending">{pending}…</p>}
       {!state && !error && <p role="status" data-testid="companion-loading">Opening HQ…</p>}
-      {section === 'Workspace' && state?.setup && !state.setup.complete ? <section className="welcome" aria-label="HQ setup" data-screen="Workspace" data-screen-state={screenStates.Workspace} data-testid="screen-workspace">
-        <HqMark className="welcome-mark"/><h1>{setupRunning ? 'Getting HQ ready' : 'Let’s finish setting up'}</h1>
-        <p className="lead">We’ll prepare your workspace and the software it needs. This can take a few minutes.</p>
-        <ol className="setup-steps setup-progress">{state.setup.steps.map((step, index) => <li key={step.id}><span className="step-symbol">{step.status === 'ready' ? <Check size={16}/> : index + 1}</span><div><h2>{step.label}</h2><p>{step.status === 'ready' ? 'Ready' : step.status === 'working' ? 'In progress…' : step.status === 'error' ? 'Needs another try' : 'Up next'}</p></div></li>)}</ol>
-        {state.setup.error && <p className="notice error" role="alert">{state.setup.error}</p>}
-        <div className="welcome-actions">{setupRunning ? <Button variant="outline" disabled={!!pending} onClick={() => void run({ action: 'cancel-setup' }, 'Stopping setup')}>Cancel setup</Button> : <><Button disabled={!!pending} onClick={() => void run({ action: 'resume-setup' }, 'Continuing setup')}>Continue setup<ArrowRight size={16}/></Button><Button variant="ghost" disabled={!!pending} onClick={() => void run({ action: 'reset-setup' }, 'Choosing a different folder')}>Choose another folder</Button></>}</div>
-      </section> : section === 'Workspace' && !workspace ? <section className="welcome" data-screen="Workspace" data-screen-state={screenStates.Workspace} data-testid="screen-workspace">
+      {section === 'Workspace' && state?.setup && !state.setup.complete ? (
+        <SetupScreen
+          setup={state.setup}
+          setupRunning={setupRunning}
+          pending={pending}
+          run={run}
+          screenState={screenStates.Workspace}
+        />
+      ) : section === 'Workspace' && !workspace ? <section className="welcome" data-screen="Workspace" data-screen-state={screenStates.Workspace} data-testid="screen-workspace">
         <HqMark className="welcome-mark"/>
         <h1>Your work, right here.</h1>
         <p className="lead">Set up HQ on this computer and bring your files and team together.</p>
@@ -184,16 +188,9 @@ export function CompanionApp() {
       {section === 'Sync' && <div data-screen="Sync" data-screen-state={screenStates.Sync} data-testid="screen-sync">
         <header className="page-heading"><h1>Sync</h1><p className="lead">Your latest work, wherever you need it.</p></header>
         <section className="status-view"><div className="status-orb"><Cloud size={30} strokeWidth={1.5}/></div><h2>{!workspace ? 'Choose a workspace to get started' : !connected ? 'Bring your work together' : state?.sync.message}</h2><p className="lead">{!workspace ? 'Set up HQ or choose your existing folder first.' : !connected ? 'Sign in to keep your files up to date across your devices.' : 'Your files stay on this computer, even when you’re offline.'}</p>
-          {workspace && connected && <div className="sync-choice">
-            {state?.syncScopes?.length ? <>
-              <label htmlFor="sync-workspace">Keep these files on this computer</label>
-              <select id="sync-workspace" className="hq-select" value={state.selectedSyncScope ?? ''} disabled={!enabled} onChange={event => void run({ action: 'select-sync-scope', scopeId: event.target.value }, 'Choosing your shared work')}>
-                <option value="" disabled>Choose your work</option>
-                {state.syncScopes.map(scope => <option key={scope.id} value={scope.id}>{scope.label}</option>)}
-              </select>
-              {state.selectedSyncScope === 'all' && <p className="muted">Syncs your personal files and every company you belong to, the same way HQ Desktop does.</p>}
-            </> : <Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'load-sync-scopes' }, 'Finding your shared work')}>Find my shared work</Button>}
-          </div>}
+          {workspace && connected && state && (
+            <CompanyPicker state={state} enabled={enabled} run={run} />
+          )}
           {workspace && connected && (state?.sync.phase === 'conflict' || (state?.sync.conflicts ?? 0) > 0) && (
             <ConflictList
               paths={state?.sync.conflictPaths ?? []}

@@ -124,6 +124,9 @@ async function createWindow(rendererUrl: string): Promise<BrowserWindow> {
   window.on('close', event => {
     if (!quitting && tray && companionService?.preferences.state.closeToTray) { event.preventDefault(); window.hide(); }
   });
+  window.on('focus', () => {
+    companionService?.onWindowFocus();
+  });
   await window.loadURL(rendererUrl);
   return window;
 }

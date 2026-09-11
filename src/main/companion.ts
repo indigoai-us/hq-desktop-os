@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { app, dialog, safeStorage, shell } from 'electron';
 import { access, readFile, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
-import { createWorkspace, initialSetup, HQ_TEMPLATE, verifiedDownload, SetupJournal, type SetupState } from './setup.js';
+import { createWorkspace, initialSetup, HQ_TEMPLATE, verifiedDownload, SetupJournal, recoverInterruptedSetup, type SetupState } from './setup.js';
 import { prepareDependencies, runSetupCommand, findExecutable, toolchainPath } from './setup-dependencies.js';
 import { launchTool, windowsTerminalPath } from './launch-tool.js';
-import { parseCompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion.js';
+import { parseCompanionAction, type CompanionSnapshot, type ConflictChoice, type MembershipsState } from '../shared/companion.js';
+import { hqWebFlowUrl, type HqWebDestination } from '../shared/hq-web.js';
 import { AccountSession } from './auth.js';
 import { CredentialStore, secureStorageAvailable } from './credential-store.js';
 import { PreferenceStore, setLinuxAutostart, startupExecutable } from './preferences.js';
@@ -30,6 +31,10 @@ export class CompanionService {
   readonly sync = new SyncSupervisor(this.account);
   private scopes: SyncScope[] = [];
   private selectedScope?: string;
+  private memberships: MembershipsState = { status: 'idle', error: null };
+  /** After opening create/invite web flow, refresh memberships when the window regains focus. */
+  private awaitingMembershipRefresh = false;
+  private membershipRefreshJob?: Promise<void>;
   /** One-shot resolve strategy; startSync resets to abort after launching. */
   private conflictStrategy: ConflictChoice = 'abort';
   private closing = false;
@@ -69,14 +74,43 @@ export class CompanionService {
   }
   private readonly workspaceAccounts = new WorkspaceAccounts(app.getPath('userData'));
   private async refreshScopes(): Promise<void> {
-    this.scopes = await loadScopes(this.account);
-    if (!this.scopes.some(scope => scope.id === this.selectedScope)) this.selectedScope = undefined;
+    // Discovery failures keep prior scopes and surface an explicit retry state —
+    // never replace a failed load with an empty list that looks like zero memberships.
+    try {
+      const scopes = await loadScopes(this.account);
+      this.scopes = scopes;
+      if (!this.scopes.some(scope => scope.id === this.selectedScope)) this.selectedScope = undefined;
+      this.memberships = { status: 'ready', error: null };
+    } catch (error) {
+      const message = error instanceof Error && error.name === 'Error' && !(error as NodeJS.ErrnoException).code
+        ? error.message
+        : 'Your shared workspaces could not be loaded. Check your connection and try again.';
+      this.memberships = { status: 'error', error: message };
+      throw error;
+    }
   }
   /** After OAuth: list memberships (like hq-desktop-app) and prefer `--companies` fanout. */
   private async prepareScopesAfterAuth(): Promise<void> {
     await this.refreshScopes();
     if (this.scopes.some(scope => scope.id === ALL_SYNC_SCOPE)) this.selectedScope = ALL_SYNC_SCOPE;
     else if (!this.selectedScope && this.scopes[0]) this.selectedScope = this.scopes[0].id;
+  }
+  private async openHqWeb(destination: HqWebDestination): Promise<void> {
+    if (!this.account.identity) throw new Error('Sign in to continue.');
+    await shell.openExternal(hqWebFlowUrl(destination));
+    this.awaitingMembershipRefresh = true;
+  }
+  /** Called when the companion window regains focus after a browser company flow. */
+  onWindowFocus(): void {
+    if (!this.awaitingMembershipRefresh || this.closing || !this.account.identity || this.pending || this.loginAbort) return;
+    this.awaitingMembershipRefresh = false;
+    this.membershipRefreshJob = this.prepareScopesAfterAuth()
+      .then(async () => { await this.saveSyncChoice(false); })
+      .catch((error: unknown) => {
+        console.error('Memberships could not refresh after HQ web return', error instanceof Error ? error.name : 'unknown');
+        this.accountError = this.memberships.error
+          ?? 'You are signed in, but your shared workspaces could not be refreshed. Try Find my shared work again.';
+      });
   }
   private async startSync(restoring = false): Promise<void> {
     if (this.closing) throw new Error('HQ is closing.');
@@ -152,9 +186,10 @@ export class CompanionService {
         }
       } catch (error: unknown) {
         console.error('Shared workspaces could not be prepared after sign-in', error instanceof Error ? error.name : 'unknown');
-        this.accountError = error instanceof Error && error.name === 'Error' && !(error as NodeJS.ErrnoException).code
-          ? error.message
-          : 'You are signed in, but your shared workspaces could not be loaded. Check your connection and try Choose your work again.';
+        this.accountError = this.memberships.error
+          ?? (error instanceof Error && error.name === 'Error' && !(error as NodeJS.ErrnoException).code
+            ? error.message
+            : 'You are signed in, but your shared workspaces could not be loaded. Check your connection and try Find my shared work again.');
         this.sync.state = { ...this.sync.state, phase: 'error', message: 'Your shared workspaces could not be loaded.' };
       }
     }).catch((error: unknown) => {
@@ -166,7 +201,16 @@ export class CompanionService {
   private setupAbort?: AbortController;
   private readonly journal = new SetupJournal(join(app.getPath('userData'), 'setup.json'));
   private setupJob?: Promise<void>;
-  async shutdown(): Promise<void> { this.closing = true; this.setupAbort?.abort(); this.loginAbort?.abort(); this.healthReporter.dispose(); await this.restoreJob; await Promise.all([this.setupJob, this.loginJob, this.sync.stop()]); }
+  async shutdown(): Promise<void> {
+    this.closing = true;
+    this.awaitingMembershipRefresh = false;
+    this.setupAbort?.abort();
+    this.loginAbort?.abort();
+    this.healthReporter.dispose();
+    await this.restoreJob;
+    await this.membershipRefreshJob;
+    await Promise.all([this.setupJob, this.loginJob, this.sync.stop()]);
+  }
   private beginSetup(root: string): void {
     if (this.setupAbort) throw new Error('Setup is already running.');
     this.setup ??= initialSetup(root);
@@ -207,11 +251,16 @@ export class CompanionService {
   }
   async initialize(): Promise<void> {
     await this.preferences.load();
-    await this.registry.load(); this.setup = await this.journal.load();
+    await this.registry.load();
+    const saved = await this.journal.load();
+    this.setup = saved && !saved.complete ? recoverInterruptedSetup(saved) : saved;
+    if (this.setup && !this.setup.complete) {
+      try { await this.journal.save(this.setup); }
+      catch (error) { console.error('Interrupted setup could not be re-saved', error instanceof Error ? error.name : 'unknown'); }
+    }
     await this.healthState.load();
     await this.healthCommands.load();
     await this.healthState.ensureInstallationId(this.registry.snapshot.installationId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || undefined);
-    if (this.setup && !this.setup.complete) for (const step of this.setup.steps) if (step.status === 'working') step.status = 'error';
     this.restoreJob = this.account.restore().then(() => this.restoreSync()).catch((error: unknown) => { console.error('Saved account could not be restored', error instanceof Error ? error.name : 'unknown'); if (this.account.identity) this.sync.state = { ...this.sync.state, phase: 'error', message: 'Sync could not reconnect. Check your connection and try again.' }; else this.accountError = 'Your account could not be reconnected. Check your connection or sign in again.'; });
   }
   private async runLocalHealthChecks(): Promise<void> {
@@ -277,6 +326,7 @@ export class CompanionService {
       workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId,
       account: { status: this.loginAbort ? 'signing-in' : this.account.identity ? 'connected' : 'signed-out', label: this.account.identity?.label ?? null, error: this.accountError },
       syncScopes: this.scopes, selectedSyncScope: this.selectedScope,
+      memberships: { ...this.memberships },
       sync: this.account.identity ? { ...this.sync.state } : { phase: 'not-connected', lastSuccess: null, message: 'Sign in to sync your files.', conflicts: 0, conflictPaths: [] },
       runtime: { version: '6.16.35', available: runtimeAvailable, node: process.versions.node },
       credentials: { available: credentialsAvailable, backend },
@@ -315,10 +365,11 @@ export class CompanionService {
         case 'resume-setup': if (this.setup && !this.setup.complete) this.beginSetup(this.setup.root); break;
         case 'reset-setup': if (this.setupAbort) throw new Error('Cancel setup before choosing another folder.'); await this.journal.clear(); this.setup = undefined; break;
         case 'cancel-setup': this.setupAbort?.abort(); await this.setupJob; break;
-        case 'sign-in': await this.sync.reset(); await this.saveSyncChoice(false); this.scopes = []; this.selectedScope = undefined; this.startSignIn(); break;
+        case 'sign-in': await this.sync.reset(); await this.saveSyncChoice(false); this.scopes = []; this.selectedScope = undefined; this.memberships = { status: 'idle', error: null }; this.awaitingMembershipRefresh = false; this.startSignIn(); break;
         case 'cancel-sign-in': this.loginAbort?.abort(); await this.loginJob; break;
         case 'load-sync-scopes': await this.prepareScopesAfterAuth(); await this.saveSyncChoice(false); break;
         case 'select-sync-scope': await this.sync.reset(); await this.refreshScopes(); if (!this.scopes.some(scope => scope.id === request.scopeId)) throw new Error('This shared workspace is no longer available.'); this.selectedScope = request.scopeId; await this.saveSyncChoice(false); break;
+        case 'open-hq-web': await this.openHqWeb(request.destination!); break;
         case 'pause-sync': await this.pauseSync(); break;
         case 'resume-sync': await this.startSync(); break;
         case 'resolve-conflicts': await this.resolveConflicts(request.choice!, request.paths); break;
@@ -370,7 +421,14 @@ export class CompanionService {
         case 'sign-out': {
           await this.sync.reset(); this.loginAbort?.abort(); await this.loginJob;
           try { await this.saveSyncChoice(false); }
-          finally { this.scopes = []; this.selectedScope = undefined; await this.account.signOut(); this.accountError = undefined; }
+          finally {
+            this.scopes = [];
+            this.selectedScope = undefined;
+            this.memberships = { status: 'idle', error: null };
+            this.awaitingMembershipRefresh = false;
+            await this.account.signOut();
+            this.accountError = undefined;
+          }
           break;
         }
       }

@@ -55,6 +55,16 @@ describe('account-scoped work selection', () => {
     expect(parseCompanionAction({ action: 'select-sync-scope', scopeId: 'all' })).toEqual({ action: 'select-sync-scope', scopeId: 'all' });
     expect(parseCompanionAction({ action: 'sign-in', scopeId: 'personal' })).toBeNull();
   });
+  it('accepts only reviewed HQ console destinations for company web flows', () => {
+    expect(parseCompanionAction({ action: 'open-hq-web', destination: 'create-company' })).toEqual({ action: 'open-hq-web', destination: 'create-company' });
+    expect(parseCompanionAction({ action: 'open-hq-web', destination: 'accept-invite' })).toEqual({ action: 'open-hq-web', destination: 'accept-invite' });
+    for (const input of [
+      { action: 'open-hq-web' },
+      { action: 'open-hq-web', destination: 'https://evil.example' },
+      { action: 'open-hq-web', destination: 'create-company', scopeId: 'personal' },
+      { action: 'load-sync-scopes', destination: 'create-company' },
+    ]) expect(parseCompanionAction(input)).toBeNull();
+  });
   it('accepts only engine conflict choices and relative paths for resolve-conflicts', () => {
     expect(parseCompanionAction({ action: 'resolve-conflicts', choice: 'keep' })).toEqual({ action: 'resolve-conflicts', choice: 'keep' });
     expect(parseCompanionAction({ action: 'resolve-conflicts', choice: 'publish-local', paths: ['notes/a.md'] })).toEqual({ action: 'resolve-conflicts', choice: 'publish-local', paths: ['notes/a.md'] });

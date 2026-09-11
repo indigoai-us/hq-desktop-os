@@ -86,6 +86,7 @@ export function createPreviewClient(): CompanionClient {
           { id: 'cmp_example', label: 'My team' },
         ];
         state.selectedSyncScope = 'all';
+        state.memberships = { status: 'ready', error: null };
         state.sync = {
           phase: 'syncing',
           message: 'Connecting your files',
@@ -97,6 +98,7 @@ export function createPreviewClient(): CompanionClient {
       if (request.action === 'sign-out') {
         state.syncScopes = [];
         state.selectedSyncScope = undefined;
+        state.memberships = { status: 'idle', error: null };
         state.account = { status: 'signed-out', label: null };
         state.sync = {
           phase: 'not-connected',
@@ -113,6 +115,11 @@ export function createPreviewClient(): CompanionClient {
           { id: 'cmp_example', label: 'My team' },
         ];
         state.selectedSyncScope = 'all';
+        state.memberships = { status: 'ready', error: null };
+      }
+      if (request.action === 'open-hq-web') {
+        // Preview only: pretend the browser opened; membership refresh stays manual.
+        state.account.error = undefined;
       }
       if (request.action === 'select-sync-scope') {
         state.selectedSyncScope = request.scopeId;

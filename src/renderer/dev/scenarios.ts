@@ -15,6 +15,7 @@ export const PREVIEW_SCENARIOS = [
   'conflict',
   'paused',
   'failure',
+  'memberships-error',
   'health-healthy',
   'health-degraded',
   'health-stale',
@@ -70,6 +71,7 @@ export function createBasePreviewSnapshot(
     workspaces: [],
     activeWorkspaceId: null,
     account: { status: 'signed-out', label: null },
+    memberships: { status: 'idle', error: null },
     sync: {
       phase: 'not-connected',
       lastSuccess: null,
@@ -108,6 +110,7 @@ function connectAccount(state: CompanionSnapshot): void {
   state.account = { status: 'connected', label: 'Alex' };
   state.syncScopes = SYNC_SCOPES.map((scope) => ({ ...scope }));
   state.selectedSyncScope = 'all';
+  state.memberships = { status: 'ready', error: null };
 }
 
 function healthKeyForScenario(
@@ -218,6 +221,24 @@ export function applyPreviewScenario(
         phase: 'error',
         lastSuccess: '2026-09-11T00:00:00Z',
         message: 'Sync could not finish. Check your connection and try again.',
+        conflicts: 0,
+        conflictPaths: [],
+      };
+      return;
+    }
+    case 'memberships-error': {
+      attachWorkspace(state);
+      state.account = { status: 'connected', label: 'Alex' };
+      state.syncScopes = [];
+      state.selectedSyncScope = undefined;
+      state.memberships = {
+        status: 'error',
+        error: 'Your shared workspaces could not be loaded. Check your connection and try again.',
+      };
+      state.sync = {
+        phase: 'error',
+        lastSuccess: null,
+        message: 'Your shared workspaces could not be loaded.',
         conflicts: 0,
         conflictPaths: [],
       };
