@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "product": "hq-desktop-os",
+  "syncEngine": {
+    "package": "@indigoai-us/hq-cloud",
+    "version": "6.16.35",
+    "integrity": "sha512-NX9i2mBVCsWesjeX0zyzBs3I3q9XRhn0aP/ptOqlKOAh7dgJc/HUQtUdJTWzuU8NlNAiaQDxtUjXghBxNX/L6w==",
+    "license": "MIT",
+    "source": "public-npm",
+    "notes": "Exact pin on the reviewed 6.16 minor line. No caret/tilde and no launch-time npx."
+  },
+  "hostRuntime": {
+    "electron": "40.0.0",
+    "electronLicense": "MIT",
+    "bundledNodePolicy": "Use Electron's embedded Node via ELECTRON_RUN_AS_NODE for the owned sync child. Launch must not require a global Node or floating npx.",
+    "contributorEngines": {
+      "node": ">=22.12.0 <25",
+      "pnpm": "10.28.2"
+    }
+  },
+  "setupToolchain": {
+    "scope": "Private per-userData toolchain created by guided Linux x64 setup. Does not mutate the system Node install or shell profile.",
+    "node": {
+      "version": "22.17.0",
+      "url": "https://nodejs.org/dist/v22.17.0/node-v22.17.0-linux-x64.tar.gz",
+      "sha256": "0fa01328a0f3d10800623f7107fbcd654a60ec178fab1ef5b9779e94e0419e1a",
+      "license": "MIT"
+    },
+    "hqCli": {
+      "package": "@indigoai-us/hq-cli",
+      "version": "5.109.6",
+      "integrity": "sha512-b717Hhp2p1pr07Gw82DH1c6EMUOVRFrLC+FDCIEjrd+XEfT63+K3kbn5m9aWeh0PORbInkQLkTmuCRjOKNWHtA==",
+      "license": "MIT",
+      "cloudRange": "~6.16.28"
+    },
+    "qmd": {
+      "package": "@tobilu/qmd",
+      "version": "2.5.3",
+      "integrity": "sha512-wUKc4pSPDbgs7mV7JYE8/Qj1pNXXatJFV8byTT/T3yLaoAXheFtWu0BgSWwoWGhRkMmxl5Qyitt66NHgbMyeBA==",
+      "license": "MIT"
+    },
+    "yq": {
+      "version": "4.47.1",
+      "url": "https://github.com/mikefarah/yq/releases/download/v4.47.1/yq_linux_amd64",
+      "sha256": "0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb",
+      "license": "MIT"
+    },
+    "jq": {
+      "version": "1.8.1",
+      "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64",
+      "sha256": "020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d",
+      "license": "MIT"
+    },
+    "git": {
+      "requirement": "system",
+      "platforms": ["linux"],
+      "notes": "Installer dependency (deb Depends: git). Setup refuses to continue without an absolute /usr path executable."
+    }
+  },
+  "hqCoreTemplate": {
+    "version": "15.0.126",
+    "url": "https://github.com/indigoai-us/hq-core/releases/download/v15.0.126/hq-core-v15.0.126.tar.gz",
+    "sha256": "9ce98cf2912dcc7fb8d94b6a0fb5da095fc5c6403625c7d51b444319466c8945",
+    "license": "see-release-archive"
+  },
+  "rejectedAdapters": [
+    {
+      "package": "create-hq",
+      "auditedVersion": "10.12.11",
+      "cloudDependency": "^5.19.1",
+      "decision": "reject",
+      "reason": "Pins hq-cloud major 5; incompatible with the reviewed 6.16 sync engine line used by this companion."
+    },
+    {
+      "package": "@indigoai-us/hq-onboarding",
+      "auditedVersion": "0.1.2",
+      "cloudDependency": "^5.1.0",
+      "decision": "reject",
+      "reason": "Declares hq-cloud ^5.1.0; cannot share one compatible sync engine with @indigoai-us/hq-cloud@6.16.35."
+    }
+  ],
+  "chosenAdapter": {
+    "id": "owned-guided-setup",
+    "modules": [
+      "src/main/setup.ts",
+      "src/main/setup-dependencies.ts",
+      "src/main/sync-child.ts"
+    ],
+    "syncEngine": "@indigoai-us/hq-cloud@6.16.35",
+    "privateSourceAccess": false
+  },
+  "payloadBudgets": {
+    "hqCloudInstalledBytesMax": 25000000,
+    "syncChildSourceBytesMax": 20000,
+    "idleChildRssBytesMax": 200000000
+  },
+  "platformEvidence": {
+    "linux": {
+      "childProcessIpc": "covered",
+      "shutdown": "covered",
+      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe."
+    },
+    "windows": {
+      "childProcessIpc": "deferred",
+      "shutdown": "deferred",
+      "notes": "Native Windows host matrix remains outstanding; prepare-runtime records the gap without blocking Linux acceptance."
+    },
+    "wsl2": {
+      "childProcessIpc": "deferred",
+      "shutdown": "deferred",
+      "notes": "WSL2 runtime ownership is US-014; not claimed by this story."
+    }
+  }
+}
