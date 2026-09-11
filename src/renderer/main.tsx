@@ -1,8 +1,10 @@
+/// <reference types="vite/client" />
 import { StrictMode, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getPlatformClient, openReviewedDocsLink } from './platform';
 import type { PlatformClient, PlatformResult } from '../shared/platform';
 import { ThemeControl, ThemeProvider } from './theme';
+import { isDevGalleryPath } from './dev/gallery-path';
 import './styles.css';
 
 function describeResult(result: PlatformResult<unknown>): string {
@@ -39,7 +41,7 @@ function App() {
   const unavailableNoteId = 'platform-unavailable-note';
 
   return (
-    <main className="hq-page">
+    <main className="hq-page" data-focus-shell tabIndex={-1}>
       <h1 className="hq-title">Your desktop companion</h1>
       <p className="hq-body">
         The app foundation is ready. Workspace setup and sync are coming in the next development
@@ -105,10 +107,24 @@ function App() {
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Renderer root is missing');
-createRoot(root).render(
-  <StrictMode>
-    <ThemeProvider>
-      <App />
-    </ThemeProvider>
-  </StrictMode>,
-);
+
+async function bootstrap(): Promise<void> {
+  // Gallery is development-only. Production builds evaluate `import.meta.env.DEV`
+  // as false, so the dynamic import is dropped from the shipped graph — no
+  // production debug escape via query, hash, or localStorage.
+  if (import.meta.env.DEV && isDevGalleryPath(window.location.pathname)) {
+    const { mountDevComponentGallery } = await import('./dev/components');
+    mountDevComponentGallery(root!);
+    return;
+  }
+
+  createRoot(root!).render(
+    <StrictMode>
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

@@ -31,6 +31,17 @@
   --color-status-warning: var(--status-warning);
   --color-status-danger: var(--status-danger);
   --color-status-info: var(--status-info);
+  /* shadcn source aliases → shared HQ tokens (no per-screen copies). */
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-foreground);
+  --color-secondary: var(--muted);
+  --color-secondary-foreground: var(--foreground);
+  --color-destructive: var(--status-danger);
+  --color-popover: var(--background);
+  --color-popover-foreground: var(--foreground);
+  --color-input: var(--border);
+  --color-card: var(--background);
+  --color-card-foreground: var(--foreground);
   /*
    * Utilities read the same semantic tokens the components do, so changing a
    * token moves both. Numeric spacing utilities step off the HQ base unit;
@@ -218,5 +229,51 @@
     fill: none;
     stroke-width: 1.5;
     flex-shrink: 0;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .hq-gallery-section {
+    margin: var(--space-5) 0 0;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border);
+  }
+
+  .hq-gallery-heading {
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-canvas);
+    line-height: 1.7;
+    font-weight: 500;
+  }
+
+  .hq-gallery-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: flex-start;
+  }
+
+  .hq-gallery-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    width: 100%;
+    max-width: 28rem;
+  }
+
+  .hq-gallery-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
 }
