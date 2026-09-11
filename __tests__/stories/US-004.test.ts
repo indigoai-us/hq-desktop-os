@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { compileStylesheet, ruleBody } from '../../tests/helpers/tailwind';
 import { PACKAGED_CSP } from '../../src/main/csp';
 import { parseCsp } from '../../tests/helpers/csp';
 import {
@@ -14,6 +15,46 @@ const root = process.cwd();
 
 function read(rel: string): string {
   return readFileSync(join(root, rel), 'utf8');
+}
+
+/** Body of an at-rule block, e.g. the inside of a `@media` query. */
+function atRuleBody(css: string, prelude: string): string {
+  const index = css.indexOf(`${prelude} {`);
+  if (index === -1) throw new Error(`compiled CSS has no ${prelude} block`);
+  let depth = 0;
+  for (let i = index + prelude.length + 1; i < css.length; i += 1) {
+    if (css[i] === '{') depth += 1;
+    else if (css[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return css.slice(index + prelude.length + 2, i);
+    }
+  }
+  throw new Error(`unbalanced ${prelude} block in compiled CSS`);
+}
+
+/** Flatten a declaration block's own properties (nested blocks excluded). */
+function declarations(body: string): Record<string, string> {
+  const flat = body.replace(/[^{}]*\{[^{}]*\}/g, '');
+  const out: Record<string, string> = {};
+  for (const part of flat.split(';')) {
+    const colon = part.indexOf(':');
+    if (colon === -1) continue;
+    out[part.slice(0, colon).trim()] = part.slice(colon + 1).trim();
+  }
+  return out;
+}
+
+/** Transition utilities the primitives actually ask for, fed to the compiler. */
+function transitionCandidates(): string[] {
+  const found = new Set<string>();
+  for (const file of UI_FILES) {
+    for (const match of read(file).matchAll(
+      /(?:transition|duration|ease)-(?:\[[^\]\s'"]+\]|[a-z0-9-]+)/g,
+    )) {
+      found.add(match[0]);
+    }
+  }
+  return [...found];
 }
 
 const UI_FILES = [
@@ -138,31 +179,42 @@ describe('US-004 accessible shadcn component foundation', () => {
     expect(docs).toContain('script-src');
   });
 
-  it('honours prefers-reduced-motion and animates only compositor properties', () => {
-    const styles = read('src/renderer/styles.css');
-    const tokens = read('src/renderer/tokens.css');
+  it('compiles reduced motion and the token-timed progress fill into the stylesheet', async () => {
+    // Compiled output, not source text: the real Tailwind compiler decides
+    // whether `duration-[var(--motion-state)]` becomes a transition at all.
+    const css = await compileStylesheet(
+      join(root, 'src/renderer/styles.css'),
+      transitionCandidates(),
+    );
 
-    // Reduced motion is answered globally, so every primitive inherits it.
-    expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
-    expect(styles).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
-    expect(styles).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
+    const reduced = atRuleBody(css, '@media (prefers-reduced-motion: reduce)');
+    const universal = declarations(ruleBody(reduced, '*, *::before, *::after'));
+    // Near-zero rather than 0s so a transitionend still fires and state
+    // listeners keep working; important so it outranks the utility layers.
+    expect(universal['transition-duration']).toBe('0.01ms !important');
+    expect(universal['animation-duration']).toBe('0.01ms !important');
+    expect(universal['animation-iteration-count']).toBe('1 !important');
 
-    // Shared motion tokens, not per-component timing copies.
-    expect(tokens).toMatch(/--motion-state:\s*\d+ms/);
-    expect(tokens).toContain('--motion-ease-out: cubic-bezier');
-    // Decelerating curve only: no overshoot/bounce keywords anywhere.
-    for (const source of [styles, tokens]) {
-      expect(source).not.toMatch(/\b(bounce|elastic|backOut|overshoot)\b/i);
-    }
+    // The shared tokens resolve to real values in the emitted sheet.
+    const tokens = declarations(ruleBody(css, ":root, [data-theme='light']"));
+    expect(tokens['--motion-state']).toMatch(/^\d+ms$/);
+    expect(tokens['--motion-ease-out']).toMatch(/^cubic-bezier\(/);
 
-    // Progress movement is token-timed transform; nothing animates layout.
-    const progress = read('src/renderer/components/ui/progress.tsx');
-    expect(progress).toContain('transition-transform');
-    expect(progress).toContain('duration-[var(--motion-state)]');
-    expect(progress).toContain('ease-[var(--motion-ease-out)]');
-    for (const rel of UI_FILES) {
-      const body = read(rel);
-      expect(body, rel).not.toMatch(/transition-\[?(width|height|top|left|all)\b/);
+    // The progress fill spends those tokens: the emitted declarations point at
+    // the token, so a token change retimes the fill with no component edit.
+    const duration = declarations(ruleBody(css, '.duration-\\[var\\(--motion-state\\)\\]'));
+    expect(duration['transition-duration']).toBe('var(--motion-state)');
+    const ease = declarations(ruleBody(css, '.ease-\\[var\\(--motion-ease-out\\)\\]'));
+    expect(ease['transition-timing-function']).toBe('var(--motion-ease-out)');
+
+    // Every transition any primitive asks for moves compositor properties only.
+    const LAYOUT = /\b(width|height|top|left|right|bottom|margin|padding|all)\b/;
+    const transitions = [...css.matchAll(/transition-property:([^;]+);/g)].map((m) =>
+      m[1].trim(),
+    );
+    expect(transitions.length).toBeGreaterThan(0);
+    for (const property of transitions) {
+      expect(property, property).not.toMatch(LAYOUT);
     }
   });
 
