@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, FileDown, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
-import { activeWorkspace, type CompanionAction, type CompanionSnapshot } from '../shared/companion';
+import { activeWorkspace, type CompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion';
 import { createCompanionClient, type CompanionClient } from './companion-client';
 import { ThemeControl } from './theme';
 import { HqMark } from './components/hq-mark';
+import { ConflictList } from './components/conflict-list';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 
@@ -98,8 +99,15 @@ export function CompanionApp() {
           {workspace && connected && <div className="sync-choice">
             {state?.syncScopes?.length ? <><label htmlFor="sync-workspace">Keep these files on this computer</label><select id="sync-workspace" className="hq-select" value={state.selectedSyncScope ?? ''} disabled={!enabled} onChange={event => void run({ action: 'select-sync-scope', scopeId: event.target.value }, 'Choosing your shared work')}><option value="" disabled>Choose your work</option>{state.syncScopes.map(scope => <option key={scope.id} value={scope.id}>{scope.label}</option>)}</select></> : <Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'load-sync-scopes' }, 'Finding your shared work')}>Choose your work</Button>}
           </div>}
-          <div className="welcome-actions">{!workspace ? <Button onClick={() => setSection('Workspace')}>Go to workspace<ArrowRight size={16}/></Button> : !connected || state?.sync.phase === 'not-connected' ? <Button disabled={!enabled} onClick={() => void run({ action: 'sign-in' }, 'Opening sign-in')}>Sign in<ArrowUpRight size={15}/></Button> : <Button disabled={!enabled || !state?.selectedSyncScope} onClick={() => void run({ action: ['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'pause-sync' : 'resume-sync' }, 'Updating sync')}>{['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'Pause sync' : state?.sync.phase === 'paused' ? 'Start syncing' : 'Try sync again'}</Button>}</div>
-          <dl className="sync-details"><div><dt>Workspace</dt><dd>{workspace?.name ?? 'Not selected'}</dd></div><div><dt>Last synced</dt><dd>{state?.sync.lastSuccess ? new Date(state.sync.lastSuccess).toLocaleString() : 'Not yet'}</dd></div></dl>
+          {workspace && connected && (state?.sync.phase === 'conflict' || (state?.sync.conflicts ?? 0) > 0) && (
+            <ConflictList
+              paths={state?.sync.conflictPaths ?? []}
+              disabled={!enabled}
+              onResolve={(choice: ConflictChoice) => void run({ action: 'resolve-conflicts', choice }, choice === 'abort' ? 'Pausing sync' : 'Applying your choice')}
+            />
+          )}
+          <div className="welcome-actions">{!workspace ? <Button onClick={() => setSection('Workspace')}>Go to workspace<ArrowRight size={16}/></Button> : !connected || state?.sync.phase === 'not-connected' ? <Button disabled={!enabled} onClick={() => void run({ action: 'sign-in' }, 'Opening sign-in')}>Sign in<ArrowUpRight size={15}/></Button> : state?.sync.phase === 'conflict' ? null : <Button disabled={!enabled || !state?.selectedSyncScope} onClick={() => void run({ action: ['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'pause-sync' : 'resume-sync' }, 'Updating sync')}>{['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'Pause sync' : state?.sync.phase === 'paused' ? 'Start syncing' : 'Try sync again'}</Button>}</div>
+          <dl className="sync-details"><div><dt>Workspace</dt><dd>{workspace?.name ?? 'Not selected'}</dd></div><div><dt>Last synced</dt><dd>{state?.sync.lastSuccess ? new Date(state.sync.lastSuccess).toLocaleString() : 'Not yet'}</dd></div>{(state?.sync.conflicts ?? 0) > 0 && <div><dt>Needs a choice</dt><dd>{state!.sync.conflicts === 1 ? '1 file' : `${state!.sync.conflicts} files`}</dd></div>}</dl>
         </section>
       </>}
       {section === 'Tools' && <>

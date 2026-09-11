@@ -5,7 +5,7 @@ import { join } from 'node:path';
 const host = vi.hoisted(() => ({ directory: '', restore: vi.fn(), scopes: vi.fn(), provision: vi.fn() }));
 vi.mock('electron', () => ({ app: { getPath: () => host.directory, getVersion: () => 'test' }, dialog: {}, shell: {}, safeStorage: { getSelectedStorageBackend: () => 'gnome_libsecret', isEncryptionAvailable: () => true } }));
 vi.mock('../../src/main/auth', () => ({ AccountSession: class { identity = { sub: 'alice', label: 'Alice' }; restore = host.restore; signOut = vi.fn(async () => { this.identity = undefined as never; }); } }));
-vi.mock('../../src/main/sync-supervisor', () => ({ SyncSupervisor: class { running = false; state = { phase: 'paused', message: 'Paused', lastSuccess: null, conflicts: 0 }; start = vi.fn(() => { this.running = true; }); stop = vi.fn(async () => { this.running = false; }); pause = vi.fn(async () => { this.running = false; }); reset = vi.fn(async () => { this.running = false; }); } }));
+vi.mock('../../src/main/sync-supervisor', () => ({ SyncSupervisor: class { running = false; state = { phase: 'paused', message: 'Paused', lastSuccess: null, conflicts: 0, conflictPaths: [] as string[] }; start = vi.fn(() => { this.running = true; }); stop = vi.fn(async () => { this.running = false; }); pause = vi.fn(async () => { this.running = false; this.state = { ...this.state, phase: 'paused', message: 'Sync is paused' }; }); reset = vi.fn(async () => { this.running = false; }); } }));
 vi.mock('../../src/main/sync-scopes', async importOriginal => ({ ...await importOriginal<object>(), loadScopes: host.scopes, ensurePersonalStorage: host.provision }));
 import { CompanionService } from '../../src/main/companion';
 import { SyncSelectionStore } from '../../src/main/sync-selection';
@@ -28,7 +28,7 @@ describe('desktop sync recovery', () => {
     await service.request({ action: 'diagnostics' });
     expect(service.sync.start).toHaveBeenCalledTimes(1);
     expect(host.scopes).toHaveBeenCalled(); expect(host.provision).toHaveBeenCalledOnce();
-    expect(service.sync.start).toHaveBeenCalledWith(root, 'personal', expect.any(Object));
+    expect(service.sync.start).toHaveBeenCalledWith(root, 'personal', expect.any(Object), 'abort');
     await service.shutdown();
   });
   it.each([[false, 'alice', 'personal'], [true, 'bob', 'personal'], [true, 'alice', 'cmp_REVOKED']])('does not reconnect a paused, different-account or revoked choice', async (enabled, sub, scope) => {
@@ -67,5 +67,24 @@ describe('desktop sync recovery', () => {
     const service = await prepare(); await vi.waitFor(() => expect(host.provision).toHaveBeenCalled());
     const pause = service.request({ action: 'pause-sync' }); release(); await pause;
     expect(service.sync.start).not.toHaveBeenCalled(); await service.shutdown();
+  });
+  it('restarts sync with an explicit one-shot conflict choice and returns to abort next', async () => {
+    const service = await prepare(false);
+    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'] };
+    await service.request({ action: 'resolve-conflicts', choice: 'keep' });
+    expect(service.sync.start).toHaveBeenCalledWith(root, 'personal', expect.any(Object), 'keep');
+    await service.request({ action: 'pause-sync' });
+    await service.request({ action: 'resume-sync' });
+    expect(service.sync.start).toHaveBeenLastCalledWith(root, 'personal', expect.any(Object), 'abort');
+    await service.shutdown();
+  });
+  it('pauses sync when the user chooses to stop on conflicts', async () => {
+    const service = await prepare(false);
+    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'] };
+    await service.request({ action: 'resolve-conflicts', choice: 'abort' });
+    expect(service.sync.pause).toHaveBeenCalled();
+    expect(service.sync.start).not.toHaveBeenCalled();
+    expect(service.sync.state).toMatchObject({ phase: 'paused', conflictPaths: ['notes/shared-draft.md'] });
+    await service.shutdown();
   });
 });

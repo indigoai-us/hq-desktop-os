@@ -1,6 +1,19 @@
-import type { CompanionSnapshot } from '../shared/companion.js';
+import { isRelativeConflictPath, type CompanionSnapshot } from '../shared/companion.js';
 export type SyncState = CompanionSnapshot['sync'];
-export const pausedSync = (): SyncState => ({ phase: 'paused', message: 'Ready when you are', lastSuccess: null, conflicts: 0 });
+export const pausedSync = (): SyncState => ({ phase: 'paused', message: 'Ready when you are', lastSuccess: null, conflicts: 0, conflictPaths: [] });
+function conflictMessage(count: number): string {
+  return count === 1 ? 'One file needs your attention' : 'Some files need your attention';
+}
+function sanitizePaths(values: unknown[]): string[] {
+  const paths: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const path = value.replace(/\\/g, '/').replace(/^\.\//, '');
+    if (!isRelativeConflictPath(path) || paths.includes(path)) continue;
+    paths.push(path);
+  }
+  return paths;
+}
 /** Protocol events, never exit code alone, establish a successful sync. */
 export function reduceSync(state: SyncState, event: Record<string, unknown>): SyncState {
   switch (event.type) {
@@ -9,14 +22,20 @@ export function reduceSync(state: SyncState, event: Record<string, unknown>): Sy
     case 'auth-error': return { ...state, phase: 'not-connected', message: 'Sign in again to continue syncing' };
     case 'setup-needed': return { ...state, phase: 'error', message: 'Your account needs another moment. Try again shortly.' };
     case 'error': return { ...state, phase: 'error', message: 'Some files could not sync. Please try again.' };
-    case 'conflict': return { ...state, phase: 'conflict', conflicts: state.conflicts + 1, message: 'Some files need your attention' };
+    case 'conflict': {
+      const path = typeof event.path === 'string' ? sanitizePaths([event.path])[0] : undefined;
+      const conflictPaths = path && !state.conflictPaths.includes(path) ? [...state.conflictPaths, path] : state.conflictPaths;
+      const conflicts = Math.max(conflictPaths.length, path ? conflictPaths.length : state.conflicts + 1);
+      return { ...state, phase: 'conflict', conflicts, conflictPaths, message: conflictMessage(conflicts) };
+    }
     case 'all-complete': {
       if (!Array.isArray(event.errors) || !Array.isArray(event.conflictPaths) || !Array.isArray(event.transient) || typeof event.companiesAttempted !== 'number' || event.companiesAttempted < 1 || typeof event.partial !== 'boolean') return state;
-      const conflicts = event.conflictPaths.length;
-      if (conflicts) return { ...state, phase: 'conflict', conflicts, message: 'Some files need your attention' };
-      if (event.errors.length || event.partial) return { ...state, phase: 'error', message: 'Some files could not sync. Please try again.' };
-      if (event.transient.length) return { ...state, phase: 'offline', message: 'Waiting for a connection' };
-      return { phase: 'idle', message: 'Your files are up to date', conflicts: 0, lastSuccess: new Date().toISOString() };
+      const conflictPaths = sanitizePaths(event.conflictPaths);
+      const conflicts = conflictPaths.length;
+      if (conflicts) return { ...state, phase: 'conflict', conflicts, conflictPaths, message: conflictMessage(conflicts) };
+      if (event.errors.length || event.partial) return { ...state, phase: 'error', message: 'Some files could not sync. Please try again.', conflicts: 0, conflictPaths: [] };
+      if (event.transient.length) return { ...state, phase: 'offline', message: 'Waiting for a connection', conflicts: 0, conflictPaths: [] };
+      return { phase: 'idle', message: 'Your files are up to date', conflicts: 0, conflictPaths: [], lastSuccess: new Date().toISOString() };
     }
     default: return state;
   }

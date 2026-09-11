@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { createWorkspace, initialSetup, HQ_TEMPLATE, verifiedDownload, SetupJournal, type SetupState } from './setup.js';
 import { prepareDependencies, runSetupCommand, findExecutable, toolchainPath } from './setup-dependencies.js';
 import { launchTool, windowsTerminalPath } from './launch-tool.js';
-import { parseCompanionAction, type CompanionSnapshot } from '../shared/companion.js';
+import { parseCompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion.js';
 import { AccountSession } from './auth.js';
 import { SecureTokenStore, secureStorageAvailable } from './secure-tokens.js';
 import { PreferenceStore, setLinuxAutostart, startupExecutable } from './preferences.js';
@@ -23,6 +23,8 @@ export class CompanionService {
   readonly sync = new SyncSupervisor(this.account);
   private scopes: SyncScope[] = [];
   private selectedScope?: string;
+  /** One-shot resolve strategy; startSync resets to abort after launching. */
+  private conflictStrategy: ConflictChoice = 'abort';
   private closing = false;
   private restoreCanceled = false;
   private restoreJob?: Promise<void>;
@@ -70,9 +72,33 @@ export class CompanionService {
     // The child holds a separate shared-location exclusive gate while using private journals.
     if (process.platform === 'win32') { env.SystemRoot = process.env.SystemRoot; env.TEMP = app.getPath('temp'); }
     if (this.closing || (restoring && this.restoreCanceled)) return;
-    this.sync.start(root, this.selectedScope, env);
+    const onConflict = this.conflictStrategy;
+    this.conflictStrategy = 'abort';
+    this.sync.start(root, this.selectedScope, env, onConflict);
     try { await this.saveSyncChoice(true); }
     catch (error) { await this.sync.stop(); throw error; }
+  }
+  private async resolveConflicts(choice: ConflictChoice, paths?: string[]): Promise<void> {
+    const listed = this.sync.state.conflictPaths;
+    const targets = paths?.length ? paths : listed;
+    if (!targets.length) throw new Error('There are no conflicting files to resolve right now.');
+    if (paths?.length && paths.some((path) => !listed.includes(path))) throw new Error('Choose conflicting files from the current list.');
+    if (choice === 'abort') {
+      await this.pauseSync();
+      this.sync.state = {
+        ...this.sync.state,
+        phase: 'paused',
+        message: 'Sync is paused',
+        conflicts: listed.length,
+        conflictPaths: listed,
+      };
+      return;
+    }
+    // Engine applies one --on-conflict strategy per pass; restart with the
+    // user's explicit choice, then return to abort so overwrite is never sticky.
+    this.conflictStrategy = choice;
+    if (this.sync.running) await this.sync.stop();
+    await this.startSync();
   }
   private loginAbort?: AbortController;
   private loginJob?: Promise<void>;
@@ -148,7 +174,7 @@ export class CompanionService {
       workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId,
       account: { status: this.loginAbort ? 'signing-in' : this.account.identity ? 'connected' : 'signed-out', label: this.account.identity?.label ?? null, error: this.accountError },
       syncScopes: this.scopes, selectedSyncScope: this.selectedScope,
-      sync: this.account.identity ? { ...this.sync.state } : { phase: 'not-connected', lastSuccess: null, message: 'Sign in to sync your files.', conflicts: 0 },
+      sync: this.account.identity ? { ...this.sync.state } : { phase: 'not-connected', lastSuccess: null, message: 'Sign in to sync your files.', conflicts: 0, conflictPaths: [] },
       runtime: { version: '6.16.35', available: runtimeAvailable, node: process.versions.node },
       credentials: { available: credentialsAvailable, backend },
       preferences: { ...this.preferences.state },
@@ -167,7 +193,7 @@ export class CompanionService {
     const request = parseCompanionAction(raw);
     if (!request) throw new Error('Invalid desktop request.');
     if (request.action === 'snapshot') return this.snapshot();
-    if (['pause-sync', 'resume-sync', 'sign-in', 'sign-out', 'select-sync-scope', 'select-workspace', 'remove-workspace', 'attach-workspace', 'create-workspace'].includes(request.action)) this.restoreCanceled = true;
+    if (['pause-sync', 'resume-sync', 'resolve-conflicts', 'sign-in', 'sign-out', 'select-sync-scope', 'select-workspace', 'remove-workspace', 'attach-workspace', 'create-workspace'].includes(request.action)) this.restoreCanceled = true;
     await this.restoreJob;
     if (this.closing) throw new Error('HQ is closing.');
     if (this.pending) throw new Error('Another desktop operation is still running.');
@@ -189,6 +215,7 @@ export class CompanionService {
         case 'select-sync-scope': await this.sync.reset(); await this.refreshScopes(); if (!this.scopes.some(scope => scope.id === request.scopeId)) throw new Error('This shared workspace is no longer available.'); this.selectedScope = request.scopeId; await this.saveSyncChoice(false); break;
         case 'pause-sync': await this.pauseSync(); break;
         case 'resume-sync': await this.startSync(); break;
+        case 'resolve-conflicts': await this.resolveConflicts(request.choice!, request.paths); break;
         case 'attach-workspace': {
           const selection = await dialog.showOpenDialog({ title: 'Choose your existing HQ workspace', properties: ['openDirectory'] });
           if (!selection.canceled && selection.filePaths[0]) { await this.sync.reset(); await this.saveSyncChoice(false); this.selectedScope = undefined; await this.registry.attach(selection.filePaths[0]); }

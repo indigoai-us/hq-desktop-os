@@ -71,6 +71,17 @@ test('shared work selection resets its status and offers explicit sync controls'
   await page.getByRole('button', { name: 'Pause sync' }).click();
   await expect(page.getByRole('heading', { name: 'Sync is paused' })).toBeVisible();
 });
+test('conflict preview lists the file and resolves with an explicit choice', async ({ page }) => {
+  await page.goto(`${url}/dev/companion?scenario=conflict`);
+  await page.getByRole('button', { name: 'Sync', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'One file needs your attention' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'This file needs a choice' })).toBeVisible();
+  await expect(page.getByText('notes/shared-draft.md', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Use the cloud copy' })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep both versions' }).click();
+  await expect(page.getByRole('heading', { name: 'Your files are up to date' })).toBeVisible();
+  await expect(page.getByText('notes/shared-draft.md', { exact: true })).toHaveCount(0);
+});
 test('background operation is an explicit preference and preview changes stay simulated', async ({ page }) => {
   await page.goto(`${url}/dev/companion`);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();

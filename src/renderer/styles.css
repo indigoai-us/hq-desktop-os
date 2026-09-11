@@ -336,4 +336,13 @@ button:focus-visible { transition-property: color, background-color, border-colo
 .sync-choice { display: grid; gap: 8px; max-width: 360px; margin: 24px auto; text-align: left; }
 .sync-choice label { font-size: var(--text-secondary); color: var(--muted-foreground); }
 
+.conflict-panel { text-align: left; max-width: 520px; margin: 8px auto 24px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.conflict-panel h3 { margin: 0 0 12px; font-size: var(--text-body); }
+.conflict-paths { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 8px; }
+.conflict-paths li { padding: 8px 10px; border-radius: calc(var(--radius) - 2px); background: var(--muted); overflow-wrap: anywhere; }
+.conflict-paths code { font-size: var(--text-secondary); }
+.conflict-actions { display: grid; gap: 12px; }
+.conflict-action { display: grid; gap: 4px; justify-items: start; }
+.conflict-action p { margin: 0; color: var(--muted-foreground); font-size: var(--text-metadata); max-width: 48ch; }
+
 .setting-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--foreground); cursor: pointer; }

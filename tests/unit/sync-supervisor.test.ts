@@ -23,6 +23,16 @@ describe('owned sync process lifecycle', () => {
     release('token-a'); await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2));
     expect(child.send.mock.calls.map(call => call[0].id)).toEqual([1, 2]); child.emit('close', 0);
   });
+  it('defaults interactive sync to abort so conflicts surface', () => {
+    fixture();
+    expect(vi.mocked(fork).mock.calls[0]?.[1]).toEqual(expect.arrayContaining(['--on-conflict', 'abort']));
+  });
+  it('restarts with an explicit one-shot conflict strategy when requested', () => {
+    const { child, sync } = fixture();
+    child.emit('close', 0);
+    sync.start('/tmp/HQ', 'personal', { HOME: '/tmp/home' }, 'publish-local');
+    expect(vi.mocked(fork).mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining(['--on-conflict', 'publish-local']));
+  });
   it('stops without delivering a different account token to an existing worker', async () => {
     vi.useFakeTimers();
     const { child, account } = fixture();
@@ -36,6 +46,12 @@ describe('owned sync process lifecycle', () => {
     expect(sync.running).toBe(true); expect(() => sync.start('/tmp/Other', 'personal', {})).toThrow('stop');
     child.emit('close', 0); await stopped;
     expect(sync.running).toBe(false); expect(sync.state.phase).toBe('paused');
+  });
+  it('preserves conflict phase when the runner exits after aborting a pass', () => {
+    const { child, sync } = fixture();
+    child.stdout.write('{"type":"conflict","path":"notes/shared-draft.md"}\n');
+    child.emit('close', 0);
+    expect(sync.state).toMatchObject({ phase: 'conflict', conflictPaths: ['notes/shared-draft.md'], conflicts: 1 });
   });
   it('does not infer success from a clean process exit or untrusted prose', () => {
     const { child, sync } = fixture();

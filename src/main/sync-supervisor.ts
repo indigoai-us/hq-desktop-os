@@ -1,6 +1,7 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import type { AccountSession } from './auth.js';
+import type { ConflictChoice } from '../shared/companion.js';
 import { pausedSync, reduceSync, RunnerLines, type SyncState } from './sync-state.js';
 export class SyncSupervisor {
   private child?: ChildProcess;
@@ -8,13 +9,20 @@ export class SyncSupervisor {
   state: SyncState = pausedSync();
   get running(): boolean { return !!this.child; }
   constructor(private readonly account: AccountSession) {}
-  start(root: string, scopeId: string, env: NodeJS.ProcessEnv): void {
+  /**
+   * Interactive desktop defaults to `--on-conflict abort` so conflicts surface
+   * instead of silently keeping local. A one-shot resolve restarts this child
+   * with the user's explicit strategy for that pass; callers should return to
+   * abort afterward so overwrite/keep never become a sticky bulk default.
+   */
+  start(root: string, scopeId: string, env: NodeJS.ProcessEnv, onConflict: ConflictChoice = 'abort'): void {
     if (this.child || this.stopping) throw new Error('Wait for sync to stop before starting again.');
     if (scopeId !== 'personal' && !/^cmp_[a-zA-Z0-9]+$/.test(scopeId)) throw new Error('Choose a shared workspace again.');
+    if (!['abort', 'keep', 'publish-local', 'overwrite'].includes(onConflict)) throw new Error('Choose how to resolve conflicting files.');
     const expectedSub = this.account.identity?.sub;
     if (!expectedSub) throw new Error('Sign in before starting sync.');
     this.state = { ...pausedSync(), phase: 'syncing', message: 'Connecting your files' };
-    const child = fork(join(__dirname, 'sync-child.js'), ['--hq-root', root, ...(scopeId === 'personal' ? ['--personal'] : ['--company', scopeId]), '--direction', 'both', '--on-conflict', 'keep', '--watch', '--event-push'], {
+    const child = fork(join(__dirname, 'sync-child.js'), ['--hq-root', root, ...(scopeId === 'personal' ? ['--personal'] : ['--company', scopeId]), '--direction', 'both', '--on-conflict', onConflict, '--watch', '--event-push'], {
       execPath: process.execPath, execArgv: [], detached: process.platform !== 'win32', cwd: root, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     this.child = child;
@@ -35,7 +43,7 @@ export class SyncSupervisor {
       });
     });
     child.once('error', (error: Error) => { console.error('Sync could not start', error.name); this.state = { ...this.state, phase: 'error', message: 'Sync could not start. Please try again.' }; });
-    child.once('close', () => { if (this.child === child) { this.child = undefined; if (!this.stopping && !['not-connected', 'error'].includes(this.state.phase)) this.state = { ...this.state, phase: 'error', message: 'Sync stopped. Please try again.' }; } });
+    child.once('close', () => { if (this.child === child) { this.child = undefined; if (!this.stopping && !['not-connected', 'error', 'conflict'].includes(this.state.phase)) this.state = { ...this.state, phase: 'error', message: 'Sync stopped. Please try again.' }; } });
   }
   stop(): Promise<void> {
     if (this.stopping) return this.stopping;
