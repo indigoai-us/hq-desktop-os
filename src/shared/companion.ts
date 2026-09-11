@@ -7,7 +7,8 @@ import type { SyncStatus } from './sync.js';
 export type { Workspace, WorkspaceEnvironment } from './workspace.js';
 export type { AccountStatus, CredentialStorageStatus, PublicAccount } from './auth.js';
 export type { HqWebDestination } from './hq-web.js';
-export type { SyncPhase, SyncStatus } from './sync.js';
+export type { SyncPass, SyncPhase, SyncStatus, SyncTransport } from './sync.js';
+export { disconnectedSync } from './sync.js';
 
 /** Serializable desktop state. Credentials and arbitrary host commands never cross IPC. */
 /** Engine `--on-conflict` strategies from hq-cloud sync-runner. */

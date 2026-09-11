@@ -43,7 +43,12 @@ export class SyncSupervisor {
     syncChildArgv(root, scopeId, onConflict);
     this.launch = { root, scopeId, env, onConflict };
     this.restartAttempts = 0;
-    this.state = { ...pausedSync(), phase: 'syncing', message: 'Connecting your files' };
+    this.state = {
+      ...pausedSync(),
+      phase: 'syncing',
+      pass: 'reconciling',
+      message: 'Connecting your files',
+    };
     this.spawnChild(expectedSub);
   }
 
@@ -213,7 +218,14 @@ export class SyncSupervisor {
 
   async pause(): Promise<void> {
     await this.stop();
-    this.state = { ...this.state, phase: 'paused', message: 'Sync is paused' };
+    this.state = {
+      ...this.state,
+      phase: 'paused',
+      message: 'Sync is paused',
+      transport: null,
+      pass: null,
+      pendingCount: 0,
+    };
   }
 
   async reset(): Promise<void> {

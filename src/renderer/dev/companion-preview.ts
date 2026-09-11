@@ -93,6 +93,9 @@ export function createPreviewClient(): CompanionClient {
           lastSuccess: null,
           conflicts: 0,
           conflictPaths: [],
+          transport: null,
+          pass: 'reconciling',
+          pendingCount: 0,
         };
       }
       if (request.action === 'sign-out') {
@@ -106,6 +109,9 @@ export function createPreviewClient(): CompanionClient {
           message: 'Sign in to sync your files.',
           conflicts: 0,
           conflictPaths: [],
+          transport: null,
+          pass: null,
+          pendingCount: 0,
         };
       }
       if (request.action === 'load-sync-scopes') {
@@ -122,6 +128,9 @@ export function createPreviewClient(): CompanionClient {
         state.account.error = undefined;
       }
       if (request.action === 'select-sync-scope') {
+        if (!(state.syncScopes ?? []).some((scope) => scope.id === request.scopeId)) {
+          throw new Error('This shared workspace is no longer available.');
+        }
         state.selectedSyncScope = request.scopeId;
         state.sync = {
           phase: 'paused',
@@ -129,20 +138,34 @@ export function createPreviewClient(): CompanionClient {
           lastSuccess: null,
           conflicts: 0,
           conflictPaths: [],
+          transport: null,
+          pass: null,
+          pendingCount: 0,
         };
       }
       if (request.action === 'set-preference') state.preferences[request.preference!] = request.enabled!;
       if (request.action === 'pause-sync') {
         state.sync.phase = 'paused';
         state.sync.message = 'Sync is paused';
+        state.sync.transport = null;
+        state.sync.pass = null;
+        state.sync.pendingCount = 0;
       }
       if (request.action === 'resume-sync') {
+        // Preview simulates a successful watch pass ending in live updates.
+        // Scope must already be authorized; revoked scopes stay actionable errors.
+        if (!state.selectedSyncScope || !(state.syncScopes ?? []).some((scope) => scope.id === state.selectedSyncScope)) {
+          throw new Error('This shared workspace is no longer available.');
+        }
         state.sync = {
           phase: 'idle',
           message: 'Your files are up to date',
           lastSuccess: new Date().toISOString(),
           conflicts: 0,
           conflictPaths: [],
+          transport: 'realtime',
+          pass: null,
+          pendingCount: 0,
         };
       }
       if (request.action === 'resolve-conflicts') {
@@ -159,6 +182,9 @@ export function createPreviewClient(): CompanionClient {
             message: 'Sync is paused',
             conflicts: listed.length,
             conflictPaths: listed,
+            transport: null,
+            pass: null,
+            pendingCount: 0,
           };
         } else {
           state.sync = {
@@ -167,6 +193,9 @@ export function createPreviewClient(): CompanionClient {
             lastSuccess: new Date().toISOString(),
             conflicts: 0,
             conflictPaths: [],
+            transport: 'realtime',
+            pass: null,
+            pendingCount: 0,
           };
         }
       }

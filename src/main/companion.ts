@@ -154,6 +154,9 @@ export class CompanionService {
         message: 'Sync is paused',
         conflicts: listed.length,
         conflictPaths: listed,
+        transport: null,
+        pass: null,
+        pendingCount: 0,
       };
       return;
     }
@@ -327,7 +330,18 @@ export class CompanionService {
       account: { status: this.loginAbort ? 'signing-in' : this.account.identity ? 'connected' : 'signed-out', label: this.account.identity?.label ?? null, error: this.accountError },
       syncScopes: this.scopes, selectedSyncScope: this.selectedScope,
       memberships: { ...this.memberships },
-      sync: this.account.identity ? { ...this.sync.state } : { phase: 'not-connected', lastSuccess: null, message: 'Sign in to sync your files.', conflicts: 0, conflictPaths: [] },
+      sync: this.account.identity
+        ? { ...this.sync.state }
+        : {
+            phase: 'not-connected',
+            lastSuccess: null,
+            message: 'Sign in to sync your files.',
+            conflicts: 0,
+            conflictPaths: [],
+            transport: null,
+            pass: null,
+            pendingCount: 0,
+          },
       runtime: { version: '6.16.35', available: runtimeAvailable, node: process.versions.node },
       credentials: { available: credentialsAvailable, backend },
       preferences: { ...this.preferences.state },

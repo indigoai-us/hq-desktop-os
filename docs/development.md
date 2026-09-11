@@ -40,12 +40,18 @@ Required deterministic scenarios (`src/renderer/dev/scenarios.ts`):
 | --- | --- |
 | *(omitted)* / `signed-out` | Signed out, no workspace |
 | `setup` | Guided setup in progress |
-| `syncing` | Connected account, sync running |
+| `syncing` | Connected account, sync connecting |
+| `reconciling` | Initial reconciliation pass |
+| `pending` | Pending planned file changes |
+| `connected` | Idle with live updates + last confirmed sync |
+| `polling` | Idle on fallback polling |
 | `offline` | Connected, waiting for a connection |
 | `conflict` | One conflicting file listed |
+| `paused` | Sync paused |
 | `failure` | Sync error phase with recovery copy |
+| `revoked-scope` | Selected company no longer authorized |
 
-Also available: `connected`, `paused`, `setup-error`, and Settings health
+Also available: `setup-error`, `memberships-error`, and Settings health
 fixtures `health-healthy`, `health-degraded`, `health-stale`,
 `health-checking`, `health-unavailable`, `health-unknown` (unknown maps to the
 unavailable fixture).

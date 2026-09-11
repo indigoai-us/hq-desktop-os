@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, Cloud, Laptop } from 'lucide-react';
-import { activeWorkspace, type CompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion';
+import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, Laptop } from 'lucide-react';
+import { activeWorkspace, type CompanionAction, type CompanionSnapshot } from '../shared/companion';
 import { HEALTH_PREVIEW_FIXTURES } from '../shared/health-fixtures';
 import { createCompanionClient, type CompanionClient } from './companion-client';
 import { HqMark } from './components/hq-mark';
-import { ConflictList } from './components/conflict-list';
-import { CompanyPicker } from './components/company-picker';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { AccountScreen } from './screens/account';
 import { SettingsScreen } from './screens/settings';
 import { SetupScreen } from './screens/setup';
+import { SyncScreen } from './screens/sync';
 
 const sections = [{ name: 'Workspace', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
 type Section = typeof sections[number]['name'];
@@ -185,23 +184,23 @@ export function CompanionApp() {
           <AccountScreen state={state} enabled={enabled} connected={connected} run={run} />
         )}
       </div>}
-      {section === 'Sync' && <div data-screen="Sync" data-screen-state={screenStates.Sync} data-testid="screen-sync">
-        <header className="page-heading"><h1>Sync</h1><p className="lead">Your latest work, wherever you need it.</p></header>
-        <section className="status-view"><div className="status-orb"><Cloud size={30} strokeWidth={1.5}/></div><h2>{!workspace ? 'Choose a workspace to get started' : !connected ? 'Bring your work together' : state?.sync.message}</h2><p className="lead">{!workspace ? 'Set up HQ or choose your existing folder first.' : !connected ? 'Sign in to keep your files up to date across your devices.' : 'Your files stay on this computer, even when you’re offline.'}</p>
-          {workspace && connected && state && (
-            <CompanyPicker state={state} enabled={enabled} run={run} />
-          )}
-          {workspace && connected && (state?.sync.phase === 'conflict' || (state?.sync.conflicts ?? 0) > 0) && (
-            <ConflictList
-              paths={state?.sync.conflictPaths ?? []}
-              disabled={!enabled}
-              onResolve={(choice: ConflictChoice) => void run({ action: 'resolve-conflicts', choice }, choice === 'abort' ? 'Pausing sync' : 'Applying your choice')}
-            />
-          )}
-          <div className="welcome-actions">{!workspace ? <Button onClick={() => setSection('Workspace')}>Go to workspace<ArrowRight size={16}/></Button> : !connected || state?.sync.phase === 'not-connected' ? <Button disabled={!enabled} onClick={() => void run({ action: 'sign-in' }, 'Opening sign-in')}>Sign in<ArrowUpRight size={15}/></Button> : state?.sync.phase === 'conflict' ? null : <Button disabled={!enabled || !state?.selectedSyncScope} onClick={() => void run({ action: ['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'pause-sync' : 'resume-sync' }, 'Updating sync')}>{['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'Pause sync' : state?.sync.phase === 'paused' ? 'Start syncing' : 'Try sync again'}</Button>}</div>
-          <dl className="sync-details"><div><dt>Workspace</dt><dd>{workspace?.name ?? 'Not selected'}</dd></div><div><dt>Syncing</dt><dd>{state?.syncScopes?.find(scope => scope.id === state.selectedSyncScope)?.label ?? 'Not selected'}</dd></div><div><dt>Last synced</dt><dd>{state?.sync.lastSuccess ? new Date(state.sync.lastSuccess).toLocaleString() : 'Not yet'}</dd></div>{(state?.sync.conflicts ?? 0) > 0 && <div><dt>Needs a choice</dt><dd>{state!.sync.conflicts === 1 ? '1 file' : `${state!.sync.conflicts} files`}</dd></div>}</dl>
-        </section>
-      </div>}
+      {section === 'Sync' && state && (
+        <SyncScreen
+          state={state}
+          workspaceName={workspace?.name}
+          connected={connected}
+          enabled={enabled}
+          screenState={screenStates.Sync}
+          onGoWorkspace={() => setSection('Workspace')}
+          run={run}
+        />
+      )}
+      {section === 'Sync' && !state && (
+        <div data-screen="Sync" data-screen-state={screenStates.Sync} data-testid="screen-sync">
+          <header className="page-heading"><h1>Sync</h1><p className="lead">Your latest work, wherever you need it.</p></header>
+          <p role="status" className="notice">{error ? 'Sync will be available after HQ reconnects.' : 'Loading sync…'}</p>
+        </div>
+      )}
       {section === 'Tools' && <div data-screen="Tools" data-screen-state={screenStates.Tools} data-testid="screen-tools">
         <header className="page-heading"><h1>Tools</h1><p className="lead">A few shortcuts for your workspace.</p></header>
         {!workspace && <p className="notice" data-testid="tools-empty">Choose your workspace first to use these shortcuts.</p>}

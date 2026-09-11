@@ -10,7 +10,7 @@ vi.mock('electron', () => ({
   safeStorage: { getSelectedStorageBackend: () => 'gnome_libsecret', isEncryptionAvailable: () => true },
 }));
 vi.mock('../../src/main/auth', () => ({ AccountSession: class { identity = { sub: 'alice', label: 'Alice' }; restore = host.restore; signOut = vi.fn(async () => { this.identity = undefined as never; }); } }));
-vi.mock('../../src/main/sync-supervisor', () => ({ SyncSupervisor: class { running = false; state = { phase: 'paused', message: 'Paused', lastSuccess: null, conflicts: 0, conflictPaths: [] as string[] }; start = vi.fn(() => { this.running = true; }); stop = vi.fn(async () => { this.running = false; }); pause = vi.fn(async () => { this.running = false; this.state = { ...this.state, phase: 'paused', message: 'Sync is paused' }; }); reset = vi.fn(async () => { this.running = false; }); } }));
+vi.mock('../../src/main/sync-supervisor', () => ({ SyncSupervisor: class { running = false; state = { phase: 'paused', message: 'Paused', lastSuccess: null, conflicts: 0, conflictPaths: [] as string[], transport: null as null, pass: null as null, pendingCount: 0 }; start = vi.fn(() => { this.running = true; }); stop = vi.fn(async () => { this.running = false; }); pause = vi.fn(async () => { this.running = false; this.state = { ...this.state, phase: 'paused', message: 'Sync is paused', transport: null, pass: null, pendingCount: 0 }; }); reset = vi.fn(async () => { this.running = false; }); } }));
 vi.mock('../../src/main/sync-scopes', async importOriginal => ({ ...await importOriginal<object>(), loadScopes: host.scopes, ensurePersonalStorage: host.provision }));
 import { CompanionService } from '../../src/main/companion';
 import { SyncSelectionStore } from '../../src/main/sync-selection';
@@ -93,7 +93,7 @@ describe('desktop sync recovery', () => {
   });
   it('restarts sync with an explicit one-shot conflict choice and returns to abort next', async () => {
     const service = await prepare(false);
-    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'] };
+    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'], transport: 'realtime', pass: null, pendingCount: 0 };
     await service.request({ action: 'resolve-conflicts', choice: 'keep' });
     expect(service.sync.start).toHaveBeenCalledWith(root, 'personal', expect.any(Object), 'keep');
     await service.request({ action: 'pause-sync' });
@@ -103,7 +103,7 @@ describe('desktop sync recovery', () => {
   });
   it('pauses sync when the user chooses to stop on conflicts', async () => {
     const service = await prepare(false);
-    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'] };
+    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'], transport: 'realtime', pass: null, pendingCount: 0 };
     await service.request({ action: 'resolve-conflicts', choice: 'abort' });
     expect(service.sync.pause).toHaveBeenCalled();
     expect(service.sync.start).not.toHaveBeenCalled();

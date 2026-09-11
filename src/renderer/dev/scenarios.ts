@@ -10,11 +10,15 @@ export const PREVIEW_SCENARIOS = [
   'setup',
   'setup-error',
   'syncing',
+  'reconciling',
+  'pending',
   'connected',
+  'polling',
   'offline',
   'conflict',
   'paused',
   'failure',
+  'revoked-scope',
   'memberships-error',
   'health-healthy',
   'health-degraded',
@@ -31,8 +35,13 @@ export const REQUIRED_PREVIEW_SCENARIOS = [
   'signed-out',
   'setup',
   'syncing',
+  'reconciling',
+  'pending',
+  'connected',
+  'polling',
   'offline',
   'conflict',
+  'paused',
   'failure',
 ] as const satisfies readonly PreviewScenarioId[];
 
@@ -78,6 +87,9 @@ export function createBasePreviewSnapshot(
       message: 'Sign in to sync your files.',
       conflicts: 0,
       conflictPaths: [],
+      transport: null,
+      pass: null,
+      pendingCount: 0,
     },
     runtime: { version: '6.16.35', available: true, node: '24' },
     credentials: { available: true, backend: 'preview' },
@@ -168,6 +180,37 @@ export function applyPreviewScenario(
         message: 'Connecting your files',
         conflicts: 0,
         conflictPaths: [],
+        transport: null,
+        pass: 'reconciling',
+        pendingCount: 0,
+      };
+      return;
+    }
+    case 'reconciling': {
+      connectAccount(state);
+      state.sync = {
+        phase: 'syncing',
+        lastSuccess: null,
+        message: 'Checking your files',
+        conflicts: 0,
+        conflictPaths: [],
+        transport: null,
+        pass: 'reconciling',
+        pendingCount: 0,
+      };
+      return;
+    }
+    case 'pending': {
+      connectAccount(state);
+      state.sync = {
+        phase: 'syncing',
+        lastSuccess: '2026-09-11T00:00:00Z',
+        message: 'Updating 3 files',
+        conflicts: 0,
+        conflictPaths: [],
+        transport: 'realtime',
+        pass: 'pending',
+        pendingCount: 3,
       };
       return;
     }
@@ -179,6 +222,23 @@ export function applyPreviewScenario(
         message: 'Your files are up to date',
         conflicts: 0,
         conflictPaths: [],
+        transport: 'realtime',
+        pass: null,
+        pendingCount: 0,
+      };
+      return;
+    }
+    case 'polling': {
+      connectAccount(state);
+      state.sync = {
+        phase: 'idle',
+        lastSuccess: '2026-09-11T00:00:00Z',
+        message: 'Connected · checking periodically',
+        conflicts: 0,
+        conflictPaths: [],
+        transport: 'polling',
+        pass: null,
+        pendingCount: 0,
       };
       return;
     }
@@ -190,6 +250,9 @@ export function applyPreviewScenario(
         message: 'Waiting for a connection',
         conflicts: 0,
         conflictPaths: [],
+        transport: 'offline',
+        pass: null,
+        pendingCount: 0,
       };
       return;
     }
@@ -201,6 +264,9 @@ export function applyPreviewScenario(
         message: 'One file needs your attention',
         conflicts: 1,
         conflictPaths: ['notes/shared-draft.md'],
+        transport: 'realtime',
+        pass: null,
+        pendingCount: 0,
       };
       return;
     }
@@ -212,6 +278,9 @@ export function applyPreviewScenario(
         message: 'Sync is paused',
         conflicts: 0,
         conflictPaths: [],
+        transport: null,
+        pass: null,
+        pendingCount: 0,
       };
       return;
     }
@@ -223,6 +292,29 @@ export function applyPreviewScenario(
         message: 'Sync could not finish. Check your connection and try again.',
         conflicts: 0,
         conflictPaths: [],
+        transport: null,
+        pass: null,
+        pendingCount: 0,
+      };
+      return;
+    }
+    case 'revoked-scope': {
+      connectAccount(state);
+      // Selected company is no longer in the authorized membership list.
+      state.syncScopes = [
+        { id: 'all', label: 'Everything I’m part of (1)' },
+        { id: 'personal', label: 'My personal work only' },
+      ];
+      state.selectedSyncScope = 'cmp_example';
+      state.sync = {
+        phase: 'paused',
+        lastSuccess: '2026-09-11T00:00:00Z',
+        message: 'Sync is paused',
+        conflicts: 0,
+        conflictPaths: [],
+        transport: null,
+        pass: null,
+        pendingCount: 0,
       };
       return;
     }
@@ -241,6 +333,9 @@ export function applyPreviewScenario(
         message: 'Your shared workspaces could not be loaded.',
         conflicts: 0,
         conflictPaths: [],
+        transport: null,
+        pass: null,
+        pendingCount: 0,
       };
       return;
     }
