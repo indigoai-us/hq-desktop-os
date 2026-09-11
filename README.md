@@ -2,7 +2,7 @@
 
 HQ Desktop OS is an open-source desktop companion for Windows and Linux. It will handle workspace setup, authentication, and sync, with native Windows as the default and WSL2 support planned.
 
-This repository currently contains the TypeScript build foundation, a secure Electron shell, Tailwind + HQ theme tokens (system/light/dark), and a typed `PlatformClient` boundary. Workspace setup, authentication, sync, installers, and native platform verification are still pending. It does not connect to HQ services yet. See `docs/theme-tokens.md` for the styling contract.
+The current development build includes guided Linux setup, protected account sign-in, workspace selection, shared-engine sync controls, and opt-in background operation. The interface uses HQ branding, a single Appearance dropdown, and the native window frame. Windows setup, conflict recovery, updates, server health, and release acceptance are still in progress. See [local build status](docs/local-test-build.md).
 
 ## Develop
 
@@ -40,3 +40,7 @@ CI is deferred: no workflow is committed on this branch and no CI run has verifi
 The packaged renderer is served from a confined `app://hq-desktop-os` origin rather than `file://`, so the renderer cannot read host files outside the `PlatformClient` boundary, and the File System Access API is switched off. The window keeps its native OS titlebar, controls, dragging and resize; the page repeats none of that, and Relaunch and Quit live in the application menu. See `docs/platform-boundary.md`.
 
 Dependency versions and pnpm are pinned. `pnpm-workspace.yaml` requires packages to be at least 1,440 minutes old before resolution and permits install scripts only for Electron and esbuild. Commit `pnpm-lock.yaml` with dependency changes, then verify a frozen install, typecheck, lint, unit tests, and build. Do not use private registry dependencies or commit credentials.
+
+## Local test build
+
+A Linux `.deb` can be built with `pnpm package:deb`. See [available features, unfinished work, and installation checks](docs/local-test-build.md). This is a local test build. See the build status for implemented features and verification limits.

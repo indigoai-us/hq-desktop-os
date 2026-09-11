@@ -16,6 +16,7 @@ export type ReviewedHttpsLink = (typeof REVIEWED_HTTPS_LINKS)[number];
 
 export const IPC_CHANNELS = Object.freeze({
   getInfo: 'hq:platform:getInfo',
+  companion: 'hq:companion:request',
   windowMinimize: 'hq:platform:windowMinimize',
   windowMaximizeToggle: 'hq:platform:windowMaximizeToggle',
   windowClose: 'hq:platform:windowClose',

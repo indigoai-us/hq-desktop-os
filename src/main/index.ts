@@ -1,11 +1,17 @@
-import { app, BrowserWindow, protocol, session } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, protocol, session, Tray } from 'electron';
 import { join, resolve } from 'node:path';
 import { isReviewedHttpsLink } from '../shared/platform.js';
 import { APP_ENTRY_URL, APP_SCHEME, serveAppAsset } from './app-protocol.js';
 import { DEVELOPMENT_CSP, PACKAGED_CSP } from './csp.js';
 import { openReviewedExternal, registerPlatformIpc } from './ipc.js';
+import { ShutdownGate } from './shutdown.js';
+import { CompanionService } from './companion.js';
 import { installApplicationMenu } from './menu.js';
 import { isAllowedNavigation } from './navigation.js';
+
+let companionService: CompanionService | undefined;
+let tray: Tray | undefined;
+let quitting = false;
 
 /**
  * Must run before `app.whenReady()`. Registering `app:` as a standard, secure
@@ -68,7 +74,7 @@ async function createWindow(rendererUrl: string): Promise<BrowserWindow> {
     // dragging, edge resize, snapping and screen-reader window semantics. The
     // app draws none of that itself.
     frame: true,
-    title: 'HQ Desktop OS',
+    title: 'HQ',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -115,16 +121,32 @@ async function createWindow(rendererUrl: string): Promise<BrowserWindow> {
     event.preventDefault();
   });
 
+  window.on('close', event => {
+    if (!quitting && tray && companionService?.preferences.state.closeToTray) { event.preventDefault(); window.hide(); }
+  });
   await window.loadURL(rendererUrl);
   return window;
 }
 
+const ownsInstance = app.requestSingleInstanceLock();
+if (!ownsInstance) app.quit();
+app.on('second-instance', () => {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+});
+
 void app.whenReady().then(async () => {
+  if (!ownsInstance) return;
   const rendererUrl = rendererEntryUrl();
   if (app.isPackaged) registerAppProtocol();
   applyContentSecurityPolicy(app.isPackaged);
   installApplicationMenu(app.isPackaged);
-  registerPlatformIpc(rendererUrl);
+  const companion = new CompanionService(); companionService = companion;
+  await companion.initialize();
+
+  const shutdown = new ShutdownGate(() => companion.shutdown(), () => app.quit());
+  app.on('before-quit', event => { quitting = true; shutdown.handle(event); });
+  registerPlatformIpc(rendererUrl, companion);
 
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false);
@@ -132,6 +154,23 @@ void app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler(() => false);
 
   await createWindow(rendererUrl);
+  const showWindow = () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+    else void createWindow(rendererUrl).catch(error => console.error('HQ window could not be opened', error instanceof Error ? error.name : 'unknown'));
+  };
+  try {
+    const icon = nativeImage.createFromPath(join(app.getAppPath(), 'build/icon.png')).resize({ width: 22, height: 22 });
+    if (icon.isEmpty()) throw new Error('Tray icon is missing');
+    tray = new Tray(icon); companion.trayAvailable = true; tray.setToolTip('HQ'); tray.on('click', showWindow);
+    const updateTray = () => tray?.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Open HQ', click: showWindow },
+      { label: 'Pause sync', enabled: companion.sync.running, click: () => { void companion.request({ action: 'pause-sync' }).catch(error => console.error('Sync could not be paused', error instanceof Error ? error.name : 'unknown')); } },
+      { type: 'separator' }, { label: 'Quit HQ', click: () => app.quit() },
+    ]));
+    updateTray(); const timer = setInterval(updateTray, 5000);
+    app.once('will-quit', () => { clearInterval(timer); tray?.destroy(); tray = undefined; });
+  } catch (error) { console.error('HQ tray is unavailable', error instanceof Error ? error.name : 'unknown'); }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -144,5 +183,5 @@ void app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin' && (!tray || !companionService?.preferences.state.closeToTray)) app.quit();
 });

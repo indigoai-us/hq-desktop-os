@@ -2,3 +2,5 @@ minimumReleaseAge: 1440
 onlyBuiltDependencies:
   - electron
   - esbuild
+minimumReleaseAgeExclude:
+  - '@indigoai-us/hq-cloud@6.16.35'

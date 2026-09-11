@@ -38,34 +38,28 @@ async function renderedElements(page: Page) {
 test.describe('US-003 rendered HQ styling contract', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('[data-testid="theme-control"]');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
   });
 
-  test('renders square corners and sans weights no heavier than 500', async ({ page }) => {
+  test('renders soft controls and sans weights no heavier than 500', async ({ page }) => {
     const elements = await renderedElements(page);
     expect(elements.length).toBeGreaterThan(5);
     expect(
       elements.filter((element) => element.fontWeight > 500).map((element) => element.tag),
     ).toEqual([]);
-    expect(
-      elements
-        .filter((element) => element.radii.some((radius) => radius !== '0px'))
-        .map((element) => element.testId ?? element.tag),
-    ).toEqual([]);
+    await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveCSS('border-radius', '6px');
+
   });
 
-  test('sizes canvas text at 13px and the page title at 20px', async ({ page }) => {
-    expect(await page.evaluate(() => getComputedStyle(document.body).fontSize)).toBe('13px');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveCSS('font-size', '20px');
-    const elements = await renderedElements(page);
-    const canvas = elements.filter((element) => element.tag !== 'h1' && element.tag !== 'svg');
-    expect(canvas.length).toBeGreaterThan(3);
-    expect(canvas.every((element) => element.fontSize === '13px')).toBe(true);
+  test('uses the readable HQ type ramp', async ({ page }) => {
+    expect(await page.evaluate(() => getComputedStyle(document.body).fontSize)).toBe('15px');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCSS('font-size', '24px');
+    await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveCSS('font-size', '15px');
   });
 
   test('marks the selected control with background only, never an accent bar', async ({ page }) => {
-    const selected = page.getByTestId('selected-sample');
-    const plain = page.getByTestId('check-native');
+    const selected = page.getByRole('button', { name: 'Settings', exact: true });
+    const plain = page.getByRole('button', { name: 'Workspace', exact: true });
     const [selectedStyle, plainStyle] = await Promise.all([
       selected.evaluate((element) => {
         const style = getComputedStyle(element);
@@ -94,22 +88,23 @@ test.describe('US-003 rendered HQ styling contract', () => {
     expect(['none', 'normal']).toContain(selectedStyle.before);
   });
 
-  test('draws theme icons as strokes and focus as a ring in the token colour', async ({ page }) => {
+  test('draws navigation icons as strokes and focus as a ring in the token colour', async ({ page }) => {
     const icons = await page.evaluate(() =>
-      [...document.querySelectorAll('[role="radiogroup"] svg')].map((icon) => {
+      [...document.querySelectorAll('nav svg')].map((icon) => {
         const style = getComputedStyle(icon);
         return { fill: style.fill, stroke: style.stroke, strokeWidth: style.strokeWidth };
       }),
     );
-    expect(icons.length).toBe(3);
+    expect(icons.length).toBe(4);
     for (const icon of icons) {
       expect(icon.fill).toBe('none');
       expect(icon.stroke).not.toBe('none');
       expect(Number.parseFloat(icon.strokeWidth)).toBeGreaterThan(0);
     }
 
-    await page.getByTestId('check-native').focus();
-    const focus = await page.getByTestId('check-native').evaluate((element) => {
+    await page.keyboard.press('Tab');
+    await page.getByRole('button', { name: 'Workspace', exact: true }).focus();
+    const focus = await page.getByRole('button', { name: 'Workspace', exact: true }).evaluate((element) => {
       const style = getComputedStyle(element);
       const ring = getComputedStyle(document.documentElement).getPropertyValue('--ring').trim();
       const probe = document.createElement('span');
@@ -133,13 +128,13 @@ test.describe('US-003 rendered HQ styling contract', () => {
     expect(
       await page.evaluate(() => typeof (window as unknown as { hqDesktop?: unknown }).hqDesktop),
     ).toBe('undefined');
-    await expect(page.getByTestId('platform-availability')).toHaveText('Native bridge unavailable');
-    await expect(page.getByTestId('open-docs')).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
+    await expect(page.getByTestId('open-docs')).toHaveCount(0);
     for (const removed of ['window-minimize', 'window-maximize', 'window-close', 'app-relaunch']) {
       await expect(page.getByTestId(removed)).toHaveCount(0);
     }
     await expect(page.getByRole('region', { name: 'Window controls' })).toHaveCount(0);
-    expect(await page.title()).toBe('HQ Desktop OS');
+    expect(await page.title()).toBe('HQ');
     await expect(page.getByText('HQ Desktop OS', { exact: true })).toHaveCount(0);
   });
 });
@@ -156,17 +151,18 @@ test.describe('US-003 offline browser launch of the built renderer', () => {
   }) => {
     const network = await forbidExternalNetwork(page, LOCAL_HOST);
     await page.goto('/');
-    await page.getByTestId('theme-option-dark').click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Appearance' }).selectOption('dark');
     await page.reload();
-    await page.waitForSelector('[data-testid="theme-control"]');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
 
-    await expect(page.getByTestId('theme-option-dark')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveValue('dark');
     expect(network.external).toEqual([]);
     expect(network.all.every((url) => url.startsWith(`http://${LOCAL_HOST}/`))).toBe(true);
 
     // No web font was loaded; the text still has a real, measurable box.
     expect(await page.evaluate(() => [...document.fonts].map((face) => face.family))).toEqual([]);
-    const body = page.getByTestId('platform-availability');
+    const body = page.getByRole('heading', { level: 1 });
     await expect(body).toBeVisible();
     const metrics = await body.evaluate((element) => {
       const style = getComputedStyle(element);

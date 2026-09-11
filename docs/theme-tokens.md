@@ -26,5 +26,8 @@ Production CSP keeps `script-src 'self'` (no inline scripts). `src/renderer/publ
 | `src/renderer/theme.tsx` | React provider and appearance control |
 | `src/renderer/lib/theme.ts` | Preference parse / resolve / persist |
 | `src/renderer/lib/utils.ts` | `cn()` helper for shadcn components |
+| `src/renderer/lib/focus-restore.ts` | Safe overlay focus return when the opener unmounts |
+| `src/renderer/components/ui/*` | Pinned shadcn/Radix primitives (see `docs/accessible-components.md`) |
+| `src/renderer/dev/components.tsx` | Development-only component gallery |
 | `src/renderer/assets/fonts.css` | Bundled system font stack |
 | `src/renderer/public/theme-init.js` | Pre-paint theme bootstrap |

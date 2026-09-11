@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import type { ViteDevServer } from 'vite';
+import { isDevGalleryPath } from './src/renderer/dev/gallery-path';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,10 +29,26 @@ function devServerOrigin(server: ViteDevServer | undefined): string | null {
 
 export default defineConfig({
   root: 'src/renderer',
-  base: './',
+  base: '/',
   plugins: [
     react(),
     tailwindcss(),
+    {
+      // `/dev/components` also names a source module below this root, so Vite's
+      // transform middleware answers the documented gallery route with
+      // JavaScript and the browser never reaches the application document.
+      // Rewrite the route to the HTML entry before that happens — the same
+      // thing the SPA fallback does for a path with no file behind it.
+      name: 'development-gallery-route',
+      apply: 'serve',
+      configureServer(server: ViteDevServer) {
+        server.middlewares.use((req, _res, next) => {
+          const [pathname] = (req.url ?? '').split('?');
+          if (isDevGalleryPath(pathname)) req.url = '/index.html';
+          next();
+        });
+      },
+    },
     {
       name: 'development-refresh-csp',
       apply: 'serve',

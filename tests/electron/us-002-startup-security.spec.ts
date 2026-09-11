@@ -16,7 +16,7 @@ test.beforeAll(async () => {
   ({ app, window: appWindow } = await launchProductionApp());
   await installViolationRecorder(appWindow);
   await appWindow.reload();
-  await appWindow.waitForSelector('[data-testid="platform-availability"]');
+  await appWindow.waitForSelector('.companion-shell');
 });
 
 test.afterAll(async () => {
@@ -29,7 +29,7 @@ test.describe('US-002 packaged startup and security preferences', () => {
     // Served from a confined custom origin, never from the file: scheme —
     // see us-002-renderer-reachability.spec.ts for what that buys.
     expect(appWindow.url()).toBe('app://hq-desktop-os/index.html');
-    await expect(appWindow.locator('h1')).toHaveText('Your desktop companion');
+    await expect(appWindow.locator('h1')).toHaveText('Your work, right here.');
   });
 
   test('enforces sandbox, context isolation and no renderer Node integration', async () => {
@@ -109,7 +109,7 @@ test.describe('US-002 packaged startup and security preferences', () => {
       version: '0.1.0',
       keys: ['invoke', 'kind', 'version'],
     });
-    await expect(appWindow.getByTestId('platform-availability')).toHaveText('Native bridge connected');
+    expect(await appWindow.evaluate(() => window.hqDesktop?.invoke('hq:platform:getInfo'))).toMatchObject({ ok: true, value: { electron: true } });
   });
 
   test('exposes no raw Electron or IPC primitives to the renderer', async () => {

@@ -89,7 +89,7 @@ test.describe('US-002 renderer reachability', () => {
       expect(outcome, `own asset ${asset}`).toMatchObject({ status: 200 });
     }
     // The UI actually rendered from those assets.
-    await expect(appWindow.locator('h1')).toHaveText('Your desktop companion');
+    await expect(appWindow.locator('h1')).toHaveText('Your work, right here.');
   });
 
   test('cannot read a local file through fetch', async () => {

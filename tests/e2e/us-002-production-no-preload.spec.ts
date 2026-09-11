@@ -10,42 +10,29 @@ test.describe('US-002 production renderer without preload', () => {
   test.beforeEach(async ({ page }) => {
     await installViolationRecorder(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="platform-availability"]');
+    await expect(page.getByRole('alert')).toBeVisible();
   });
 
-  test('reports an unavailable native platform instead of a native surface', async ({ page }) => {
+  test('explains how to open HQ without displaying implementation details', async ({ page }) => {
     expect(await page.evaluate(() => typeof (window as unknown as { hqDesktop?: unknown }).hqDesktop)).toBe('undefined');
-    await expect(page.getByTestId('platform-unavailable')).toBeVisible();
-    await expect(page.getByTestId('platform-availability')).toHaveText('Native bridge unavailable');
-    await expect(page.getByTestId('platform-unavailable')).toHaveAttribute('role', 'status');
+    await expect(page.getByRole('alert')).toContainText('Try reopening the app');
+    await expect(page.getByText(/preload|native bridge|runtime|VS Code|documentation/i)).toHaveCount(0);
   });
-
-  test('disables every native action rather than offering a simulated one', async ({ page }) => {
-    await expect(page.getByTestId('open-docs')).toBeDisabled();
-    await expect(page.getByTestId('open-docs')).toHaveAttribute(
-      'aria-describedby',
-      'platform-unavailable-note',
-    );
+  test('disables native setup instead of simulating success', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Set up HQ', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'I already have an HQ folder' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
   });
-
-  test('renders no in-app window-chrome bar duplicating the OS titlebar', async ({ page }) => {
-    for (const removed of ['window-minimize', 'window-maximize', 'window-close', 'app-relaunch']) {
-      await expect(page.getByTestId(removed)).toHaveCount(0);
-    }
-    await expect(page.getByRole('region', { name: 'Application actions' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Window controls' })).toHaveCount(0);
-    // The document title is the only place the product name appears.
-    expect(await page.title()).toBe('HQ Desktop OS');
+  test('keeps one native title bar and no duplicate window controls', async ({ page }) => {
+    for (const removed of ['window-minimize', 'window-maximize', 'window-close', 'app-relaunch', 'open-docs', 'check-native']) await expect(page.getByTestId(removed)).toHaveCount(0);
+    expect(await page.title()).toBe('HQ');
     await expect(page.getByText('HQ Desktop OS', { exact: true })).toHaveCount(0);
   });
-
-  test('answers a requested native action with an unavailable result, not success', async ({ page }) => {
-    await expect(page.getByTestId('platform-last-result')).toHaveText('No native action yet');
-    await page.getByTestId('check-native').click();
-    await expect(page.getByTestId('platform-last-result')).toHaveText(
-      'Check native → unavailable: Native platform bridge is unavailable.',
-    );
-    expect(await page.textContent('body')).not.toContain('→ ok');
+  test('retry remains unavailable without the desktop bridge', async ({ page }) => {
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('Open HQ on your computer');
+    await expect(page.getByRole('button', { name: 'Set up HQ', exact: true })).toBeDisabled();
   });
 
   test('exposes no Node or Electron primitives to the page', async ({ page }) => {

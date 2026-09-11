@@ -1,52 +1,29 @@
-/**
- * Assemble a real Electron production runtime from the built output.
- *
- * Installers are a later story; this stages the same layout an installer ships:
- * the Electron binary renamed to the product, with `resources/app` holding the
- * compiled main, preload and renderer. Because the executable is no longer
- * named `electron`, `app.isPackaged` is genuinely true and the app takes its
- * production branches (the confined app:// renderer scheme and the packaged
- * CSP) with no test overrides.
- */
-import { chmod, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+/** Stage the packager's real production dependency tree for native tests. */
+import { execFile } from 'node:child_process';
+import { cp, rename, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import { promisify } from 'node:util';
+const require = createRequire(import.meta.url);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-const electronDist = join(repoRoot, 'node_modules', 'electron', 'dist');
 const stageDir = join(repoRoot, 'dist-runtime');
+const output = join(repoRoot, 'release/runtime-stage');
 const isWindows = process.platform === 'win32';
+const builderRequire = createRequire(require.resolve('electron-builder'));
+const packagerRequire = createRequire(builderRequire.resolve('app-builder-lib'));
+const { extractAll } = packagerRequire('@electron/asar');
+await promisify(execFile)(process.execPath, [join(dirname(require.resolve('electron-builder/package.json')), 'cli.js'), '--dir', isWindows ? '--win' : '--linux', '--x64', '--publish', 'never', `--config.directories.output=${output}`], { cwd: repoRoot, timeout: 300000, maxBuffer: 8 * 1024 * 1024 });
+const source = join(output, isWindows ? 'win-unpacked' : 'linux-unpacked');
+await rm(stageDir, { recursive: true, force: true });
+await cp(source, stageDir, { recursive: true });
 const productBinary = isWindows ? 'hq-desktop-os.exe' : 'hq-desktop-os';
-const electronBinary = isWindows ? 'electron.exe' : 'electron';
-
-async function main() {
-  if (!existsSync(electronDist)) {
-    throw new Error(`Electron runtime is not installed at ${electronDist}`);
-  }
-  for (const required of ['main/index.js', 'preload/index.js', 'renderer/index.html']) {
-    if (!existsSync(join(repoRoot, 'dist', required))) {
-      throw new Error(`Run "pnpm build" first: dist/${required} is missing`);
-    }
-  }
-
-  await rm(stageDir, { recursive: true, force: true });
-  await cp(electronDist, stageDir, { recursive: true, verbatimSymlinks: true });
-  await rename(join(stageDir, electronBinary), join(stageDir, productBinary));
-
-  const appDir = join(stageDir, 'resources', 'app');
-  await mkdir(appDir, { recursive: true });
-  const pkg = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'));
-  await writeFile(
-    join(appDir, 'package.json'),
-    `${JSON.stringify({ name: pkg.name, productName: 'HQ Desktop OS', version: pkg.version, main: 'dist/main/index.js' }, null, 2)}\n`,
-  );
-  await cp(join(repoRoot, 'dist'), join(appDir, 'dist'), { recursive: true });
-
-  if (!isWindows) {
-    await chmod(join(stageDir, productBinary), 0o755);
-  }
-  process.stdout.write(`Staged production runtime: ${join(stageDir, productBinary)}\n`);
-}
-
-await main();
+if (isWindows) await rename(join(stageDir, 'HQ Desktop OS.exe'), join(stageDir, productBinary));
+// Native specs inspect renderer/preload bytes through ordinary Node fs. Unpack
+// the exact archive, including native dependencies, without altering app code.
+const archive = join(stageDir, 'resources/app.asar');
+if (!existsSync(archive)) throw new Error('Packager did not produce the application archive');
+extractAll(archive, join(stageDir, 'resources/app'));
+await rm(archive);
+console.log(`Staged production runtime: ${join(stageDir, productBinary)}`);

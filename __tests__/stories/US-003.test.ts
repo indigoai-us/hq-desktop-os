@@ -195,8 +195,8 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
       '.hq-page': ['var(--space-6)'],
       '.hq-actions': ['var(--space-2)', 'var(--space-5)'],
       '.hq-button': ['var(--space-2)', 'var(--space-3)'],
-      '.hq-theme-control': ['var(--space-1)', 'var(--space-4)'],
-      '.hq-theme-option': ['var(--space-1)', 'var(--space-2)', 'var(--space-3)'],
+      '.hq-theme-control': ['var(--space-4)'],
+      '.hq-theme-control select, .hq-select': ['var(--space-2)', 'var(--space-3)'],
     };
     for (const [selector, expected] of Object.entries(components)) {
       const body = ruleBody(css, selector);
@@ -227,9 +227,9 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     const styles = read('src/renderer/styles.css');
     const tokens = read('src/renderer/tokens.css');
 
-    // Square corners on controls.
-    expect(styles).toMatch(/border-radius:\s*0/);
-    expect(tokens).toMatch(/--radius:\s*0/);
+    // Updated user direction uses HQ V4 control radii.
+    expect(styles).toMatch(/border-radius:\s*var\(--radius\)/);
+    expect(tokens).toMatch(/--radius:\s*6px/);
 
     // Weight cap: component rules use 400/500 only.
     const weights = [...styles.matchAll(/font-weight:\s*(\d+)/g)].map((m) => Number(m[1]));
@@ -247,12 +247,12 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
       expect(styles).toContain(`var(--status-${tone})`);
     }
 
-    // Stroke icons: theme control SVGs fill none / stroke currentColor.
-    expect(styles).toContain('stroke: currentColor');
-    expect(styles).toContain('fill: none');
+    // Appearance is one labeled native select.
+    expect(read('src/renderer/theme.tsx')).toContain('<select id="appearance"');
+    expect(read('src/renderer/theme.tsx')).not.toContain('role="radio"');
 
-    const main = read('src/renderer/main.tsx');
-    expect(main).toContain('data-selected="true"');
+    const main = read('src/renderer/main.tsx') + read('src/renderer/companion-app.tsx');
+    expect(main).toContain('data-selected={section === name}');
     expect(main).toContain('ThemeControl');
     // US-002 native frame: still no redundant window-control IPC wiring in the page.
     expect(main).not.toMatch(/platform\.windowMinimize|platform\.windowMaximize|platform\.windowClose/);
@@ -284,7 +284,7 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     expect(development['script-src']).toContain("'self'");
 
     const html = read('src/renderer/index.html');
-    expect(html).toContain('src="./theme-init.js"');
+    expect(html).toContain('src="/theme-init.js"');
     expect(html).toContain('data-theme="system"');
     // No inline theme bootstrap script body.
     expect(html).not.toMatch(/<script(?![^>]*src=)[^>]*>[^<]*localStorage/i);
@@ -294,7 +294,7 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     // Vite copies publicDir verbatim, so the bootstrap ships as a same-origin
     // classic script next to index.html.
     expect(read('src/renderer/public/theme-init.js')).toContain(THEME_STORAGE_KEY);
-    expect(read('src/renderer/index.html')).toContain('src="./theme-init.js"');
+    expect(read('src/renderer/index.html')).toContain('src="/theme-init.js"');
 
     // Run the shipped build transform over the shipped document.
     const built = transformHtml('production-csp', read('src/renderer/index.html'), {});
@@ -303,7 +303,7 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     );
     expect(csp['script-src']).toEqual(["'self'"]);
     expect(csp['connect-src']).toEqual(["'self'"]);
-    expect(built).toContain('src="./theme-init.js"');
+    expect(built).toContain('src="/theme-init.js"');
 
     const docs = read('docs/theme-tokens.md');
     expect(docs).toContain('theme-init.js');
