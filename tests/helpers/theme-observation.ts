@@ -29,6 +29,7 @@ export async function recordThemeTimeline(page: Page): Promise<void> {
 
     const sample = () => {
       const root = document.documentElement;
+      if (!root) return null;
       const style = getComputedStyle(root);
       const mount = document.getElementById('root');
       return {
@@ -39,11 +40,18 @@ export async function recordThemeTimeline(page: Page): Promise<void> {
       };
     };
 
+    // At document-start there is no <html> yet, so the document node is the
+    // only thing there is to observe. Attribute changes on the element the
+    // parser creates a moment later surface through the subtree, which is
+    // still strictly earlier than anything the page itself can run.
     new MutationObserver((records) => {
       for (const record of records) {
-        if (record.attributeName === 'data-theme') sink.applied.push(sample());
+        if (record.attributeName !== 'data-theme') continue;
+        if (record.target !== document.documentElement) continue;
+        const entry = sample();
+        if (entry) sink.applied.push(entry);
       }
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    }).observe(document, { attributes: true, subtree: true, attributeFilter: ['data-theme'] });
 
     requestAnimationFrame(() => {
       sink.firstFrame = sample();

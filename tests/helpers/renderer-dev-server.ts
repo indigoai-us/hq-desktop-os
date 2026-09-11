@@ -35,6 +35,13 @@ export async function startFixtureServer(options: {
     resolve: { alias: { '@': options.root } },
     server: { host: options.host, port: options.port, strictPort: true },
   });
-  await server.listen();
+  try {
+    await server.listen();
+  } catch (error) {
+    // A failed listen still leaves watchers and a port claim behind. Release
+    // them, but never let a teardown problem replace the real failure.
+    await server.close().catch(() => undefined);
+    throw error;
+  }
   return server;
 }
