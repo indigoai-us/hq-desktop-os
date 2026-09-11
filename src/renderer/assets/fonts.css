@@ -1,0 +1,11 @@
+/**
+ * Local system font stack only. No @font-face remote URLs and no CDN imports —
+ * the packaged CSP and offline launch both require fonts that already exist on
+ * the host.
+ */
+:root {
+  --hq-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --hq-font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+  --font-sans: var(--hq-font-sans);
+  --font-mono: var(--hq-font-mono);
+}

@@ -40,7 +40,7 @@ Traversal checks run against the path **as requested**, because both `new URL()`
 
 The window keeps the native OS frame (`frame: true`). The platform supplies the titlebar, the minimize / maximize / close controls, dragging, edge and corner resize, snapping, the window menu and screen-reader window semantics; the app draws none of it and maintains no per-platform control glyphs.
 
-Consequently the renderer repeats none of it: there is no in-app app-name title and no in-app window-control row. The `windowMinimize` / `windowMaximizeToggle` / `windowClose` channels remain part of the typed boundary and keep their native tests, so a custom titlebar remains possible later without re-deriving them.
+Consequently the renderer repeats none of it: there is no in-app app-name title and no in-app window-control row. Appearance (system/light/dark) is the only chrome-adjacent control on the page; it does not duplicate OS window buttons. The `windowMinimize` / `windowMaximizeToggle` / `windowClose` channels remain part of the typed boundary and keep their native tests, so a custom titlebar remains possible later without re-deriving them.
 
 Packaged builds ship an authored application menu (`src/main/menu.ts`) instead of Electron's default one. The default menu is an unreviewed surface that hands end users Reload and Toggle Developer Tools (F12, Ctrl+Shift+I) in production. The authored menu carries File (Relaunch, Quit), Edit and Help (Documentation), exposes no `reload`, `forcereload` or `toggledevtools` role, and is not labelled with the product name — the titlebar already carries that. Development keeps Electron's default menu so contributors retain Reload and DevTools against the localhost dev server.
 

@@ -2,6 +2,7 @@ import { StrictMode, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getPlatformClient, openReviewedDocsLink } from './platform';
 import type { PlatformClient, PlatformResult } from '../shared/platform';
+import { ThemeControl, ThemeProvider } from './theme';
 import './styles.css';
 
 function describeResult(result: PlatformResult<unknown>): string {
@@ -38,16 +39,17 @@ function App() {
   const unavailableNoteId = 'platform-unavailable-note';
 
   return (
-    <main>
-      <h1>Your desktop companion</h1>
-      <p>
+    <main className="hq-page">
+      <h1 className="hq-title">Your desktop companion</h1>
+      <p className="hq-body">
         The app foundation is ready. Workspace setup and sync are coming in the next development
         milestones.
       </p>
 
       {native ? null : (
         <p
-          className="status unavailable"
+          className="hq-status"
+          data-tone="unavailable"
           role="status"
           id={unavailableNoteId}
           data-testid="platform-unavailable"
@@ -57,9 +59,10 @@ function App() {
         </p>
       )}
 
-      <section className="actions" aria-label="Application actions">
+      <section className="hq-actions" aria-label="Application actions">
         <button
           type="button"
+          className="hq-button"
           disabled={!native}
           aria-describedby={native ? undefined : unavailableNoteId}
           data-testid="open-docs"
@@ -70,17 +73,30 @@ function App() {
         {/* Always live: asking for native state must report the truth, never a simulated success. */}
         <button
           type="button"
+          className="hq-button"
           data-testid="check-native"
           onClick={() => void run(() => platform.getInfo(), 'Check native')}
         >
           Check native connection
         </button>
+        {/* Representative selected control for the HQ selection contract (background only). */}
+        <button
+          type="button"
+          className="hq-button hq-nav-item"
+          data-selected="true"
+          data-testid="selected-sample"
+          aria-current="page"
+        >
+          Companion
+        </button>
       </section>
 
-      <p className="status" data-testid="platform-availability">
+      <ThemeControl />
+
+      <p className="hq-status" data-testid="platform-availability">
         {native ? 'Native bridge connected' : 'Native bridge unavailable'}
       </p>
-      <p className="status muted" role="status" data-testid="platform-last-result">
+      <p className="hq-status" data-tone="muted" role="status" data-testid="platform-last-result">
         {lastResult}
       </p>
     </main>
@@ -91,6 +107,8 @@ const root = document.getElementById('root');
 if (!root) throw new Error('Renderer root is missing');
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </StrictMode>,
 );

@@ -12,7 +12,11 @@
       "node"
     ],
     "jsx": "react-jsx",
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/renderer/*"]
+    }
   },
   "include": [
     "tests/**/*.ts",
