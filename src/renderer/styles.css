@@ -316,7 +316,16 @@
     .brand-mark { display: none; }
     .companion-sidebar nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .companion-sidebar nav button { padding: 9px 4px; gap: 5px; justify-content: center; font-size: var(--text-metadata); }
-    .sidebar-footer { display: none; }
+    /* Keep active workspace visible at narrow / 200% zoom layouts. */
+    .sidebar-footer {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      margin-top: 0;
+      padding: 4px 8px 8px;
+    }
+    .sidebar-footer span { display: inline; margin-top: 0; }
     .companion-main { padding: 24px 20px; }
     .welcome { margin: 24px auto; }
     .welcome h1 { font-size: var(--text-title); }

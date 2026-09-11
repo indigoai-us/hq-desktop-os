@@ -9,9 +9,12 @@ import {
 
 /** Development only: no host access, network, or persistence. Reset by reloading or clearing `?scenario=`. */
 export function createPreviewClient(): CompanionClient {
-  const initialScenario = parsePreviewScenario(
-    new URLSearchParams(window.location.search).get('scenario'),
-  );
+  const params = new URLSearchParams(window.location.search);
+  const initialScenario = parsePreviewScenario(params.get('scenario'));
+  /** Optional `?delay=ms` slows non-snapshot actions so pending UI and duplicate guards are testable. */
+  const delayMs = Math.max(0, Number.parseInt(params.get('delay') ?? '0', 10) || 0);
+  /** Optional `?fail=action` makes that companion action reject once loaded. */
+  const failAction = params.get('fail');
   const state: CompanionSnapshot = snapshotForScenario(initialScenario);
   let setupStarted: number | undefined;
 
@@ -31,6 +34,12 @@ export function createPreviewClient(): CompanionClient {
   return {
     simulated: true,
     async request(request) {
+      if (delayMs > 0 && request.action !== 'snapshot') {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      if (failAction && request.action === failAction) {
+        throw new Error('That did not finish. Please try again.');
+      }
       if (request.action === 'create-workspace') {
         state.setup = previewSetupSteps();
         setupStarted = Date.now();
