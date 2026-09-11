@@ -20,19 +20,49 @@ import { productionRuntimePath } from '../electron/runtime';
  *   server can be driven against; no security flag, sandbox setting or
  *   webPreference is changed. A native Wayland session is NOT covered.
  * - The helper is compiled on demand from tests/native/xtest-pointer.c. If a
- *   compiler or libXtst is missing, the spec skips instead of pretending.
+ *   compiler or libXtst is missing, the spec FAILS with that reason; a
+ *   titlebar drag nobody could drive is not a pass.
  * - The XTEST extension can be present and answer every call successfully
  *   while the display server discards the events. So the helper is asked to
  *   prove it can actually move the pointer before any assertion is made; if it
- *   cannot, this spec skips with that reason rather than reporting a pass.
+ *   cannot, this spec FAILS with that measured reason.
+ *
+ * Nothing native happens at import time. Compiling the helper and probing the
+ * display are side effects on a real desktop, so they run inside beforeAll,
+ * behind the provisioned-host guard below — merely collecting or listing this
+ * suite injects no pointer input and compiles nothing.
  */
-const canDriveX11 =
-  process.platform === 'linux' && Boolean(process.env.DISPLAY) && existsSync('/usr/include/X11/extensions/XTest.h');
+
+/**
+ * An isolated host provisioned for acceptance must announce itself. Without
+ * this, the suite refuses to touch the display: pointer injection on someone's
+ * live desktop is never acceptable, and a run that could not be authorised is
+ * a failure, not a pass.
+ */
+const PROVISIONED_HOST_ENV = 'HQ_HOST_ACCEPTANCE';
+
+function provisionedHost(): { ok: boolean; reason: string } {
+  if (process.env[PROVISIONED_HOST_ENV] !== '1') {
+    return {
+      ok: false,
+      reason:
+        `${PROVISIONED_HOST_ENV}=1 is not set, so this host has not been declared an isolated acceptance host`,
+    };
+  }
+  if (process.platform !== 'linux' || !process.env.DISPLAY) {
+    return { ok: false, reason: 'no Linux X11 DISPLAY to drive' };
+  }
+  if (!existsSync('/usr/include/X11/extensions/XTest.h')) {
+    return { ok: false, reason: 'libXtst development headers are missing, so the pointer helper cannot be built' };
+  }
+  return { ok: true, reason: 'declared isolated X11 acceptance host' };
+}
 
 let helperDir: string | null = null;
+let helper: string | null = null;
+let injection: { ok: boolean; reason: string } = { ok: false, reason: 'the host capability probe has not run' };
 
 function compileHelper(): string | null {
-  if (!canDriveX11) return null;
   try {
     helperDir = mkdtempSync(join(tmpdir(), 'hq-xtest-'));
     const out = join(helperDir, 'xtest-pointer');
@@ -49,7 +79,7 @@ function compileHelper(): string | null {
 /** Does this display actually apply injected pointer input? */
 function injectionHonoured(binary: string | null): { ok: boolean; reason: string } {
   if (!binary) {
-    return { ok: false, reason: 'no X11 display, C compiler or libXtst to build the pointer helper with' };
+    return { ok: false, reason: 'the pointer helper could not be compiled here (no working C compiler or libXtst)' };
   }
   try {
     execFileSync(binary, ['selftest'], { stdio: 'pipe', timeout: 30_000 });
@@ -59,9 +89,6 @@ function injectionHonoured(binary: string | null): { ok: boolean; reason: string
     return { ok: false, reason: output || 'the pointer helper could not drive this display' };
   }
 }
-
-const helper = compileHelper();
-const injection = injectionHonoured(helper);
 
 function pointer(...args: string[]): string {
   if (!helper) throw new Error('The pointer helper was not compiled');
@@ -106,10 +133,23 @@ async function dragAndSettle(from: [number, number], to: [number, number]): Prom
 
 test.describe('US-002 native pointer input against the OS frame', () => {
   // This suite is only ever run by `pnpm test:host-acceptance` on a host that
-  // was provisioned for it. An incapable host FAILS here with the measured
-  // reason instead of skipping, so an unproven titlebar drag can never be
-  // read as a pass. The default suites do not contain this spec at all.
+  // was provisioned for it. Every native step — compiling the helper, probing
+  // the display, injecting input — happens here at execution time, after the
+  // provisioned-host guard, never during collection. An incapable or
+  // undeclared host FAILS here with the measured reason instead of skipping,
+  // so an unproven titlebar drag can never be read as a pass. The default
+  // suites do not contain this spec at all.
   test.beforeAll(() => {
+    const provisioned = provisionedHost();
+    if (!provisioned.ok) {
+      throw new Error(
+        `UNSUPPORTED ACCEPTANCE HOST: ${provisioned.reason}. Titlebar drag and edge resize are unproven ` +
+          'on this host. Run this suite only on a provisioned isolated X11 acceptance host (or under Xvfb) ' +
+          `with ${PROVISIONED_HOST_ENV}=1; it must never run against a live user desktop.`,
+      );
+    }
+    helper = compileHelper();
+    injection = injectionHonoured(helper);
     if (!injection.ok) {
       throw new Error(
         `UNSUPPORTED ACCEPTANCE HOST: real pointer input cannot be driven here — ${injection.reason}. ` +

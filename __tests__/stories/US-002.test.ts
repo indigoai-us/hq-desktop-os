@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   IPC_CHANNELS,
   IPC_CHANNEL_LIST,
@@ -19,11 +20,10 @@ import { APP_ENTRY_URL, APP_ORIGIN, resolveAppAsset } from '../../src/main/app-p
 import { isTrustedIpcSender } from '../../src/main/ipc-guard';
 import { isAllowedNavigation } from '../../src/main/navigation';
 import { REQUIRED_CSP_DIRECTIVES, cspFromHtml, parseCsp } from '../../tests/helpers/csp';
+import { includeCheckoutPath } from '../../tests/helpers/contributor';
 
 const execFileAsync = promisify(execFile);
 const root = process.cwd();
-const builtPreload = join(root, 'dist/preload/index.js');
-const builtRenderer = join(root, 'dist/renderer/index.html');
 
 function recordingBridge(reply: PlatformResult<unknown> = { ok: true, value: 'stub' }) {
   const calls: Array<{ channel: string; payload: unknown }> = [];
@@ -147,7 +147,54 @@ describe('US-002 typed platform boundary behaviour', () => {
   });
 });
 
-describe.runIf(existsSync(builtPreload))('US-002 built production artifacts', () => {
+/**
+ * The four checks below assert what the *shipped* artifacts contain, so they
+ * need those artifacts to exist. Selecting them on whether `dist/` happens to
+ * be populated would let a clean checkout report success without ever checking
+ * the sandbox-safe preload bundle, the production CSP or the renderer's asset
+ * paths. So this suite builds them itself, in its own isolated contributor
+ * checkout (the US-001 copy filter), and fails loudly if that build cannot
+ * happen. Building into a throwaway checkout also means these tests never race
+ * the repository's shared `dist/` with a concurrent build or dev server.
+ */
+let checkout: string;
+let builtPreload: string;
+let builtRenderer: string;
+
+/** A CLI shipped by an installed dependency, invoked without a shell shim. */
+function installedCli(relative: string): string {
+  const cli = join(root, relative);
+  if (!existsSync(cli)) {
+    throw new Error(`${relative} is missing: install dependencies before running the US-002 artifact suite`);
+  }
+  return cli;
+}
+
+async function runInCheckout(cli: string, args: string[], timeout = 180_000): Promise<void> {
+  await execFileAsync(process.execPath, [cli, ...args], { cwd: checkout, timeout });
+}
+
+beforeAll(async () => {
+  checkout = await mkdtemp(join(tmpdir(), 'hq-us002-'));
+  await cp(root, checkout, { recursive: true, filter: includeCheckoutPath });
+  // The installed dependency tree is reused read-only; US-001 owns the frozen
+  // install contract, and re-installing here would prove nothing new.
+  await symlink(join(root, 'node_modules'), join(checkout, 'node_modules'), 'junction');
+  const vite = installedCli('node_modules/vite/bin/vite.js');
+  await runInCheckout(vite, ['build', '--config', 'vite.preload.config.ts']);
+  await runInCheckout(vite, ['build']);
+  builtPreload = join(checkout, 'dist/preload/index.js');
+  builtRenderer = join(checkout, 'dist/renderer/index.html');
+  for (const artifact of [builtPreload, builtRenderer]) {
+    if (!existsSync(artifact)) throw new Error(`the production build did not emit ${artifact}`);
+  }
+}, 300_000);
+
+afterAll(async () => {
+  if (checkout) await rm(checkout, { recursive: true, force: true });
+});
+
+describe.sequential('US-002 built production artifacts', () => {
   it('emits a preload the Electron sandbox can load with no local requires', async () => {
     // Regression: a sandboxed preload only receives a polyfilled require, so a
     // relative require here drops window.hqDesktop and the app never goes native.
@@ -176,13 +223,9 @@ describe.runIf(existsSync(builtPreload))('US-002 built production artifacts', ()
     // that requires '../shared/platform.js' — a require a sandboxed preload
     // cannot resolve, which silently drops window.hqDesktop.
     const before = await readFile(builtPreload, 'utf8');
-    await execFileAsync(
-      process.platform === 'win32' ? 'npx.cmd' : 'npx',
-      ['tsc', '-p', 'tsconfig.preload.json'],
-      { cwd: root, shell: process.platform === 'win32' },
-    );
+    await runInCheckout(installedCli('node_modules/typescript/bin/tsc'), ['-p', 'tsconfig.preload.json'], 120_000);
     expect(await readFile(builtPreload, 'utf8')).toBe(before);
-  }, 60_000);
+  }, 130_000);
 
   it('emits a renderer document that references no absolute local path', async () => {
     // Relative asset URLs are what let the document be served from the

@@ -9,7 +9,10 @@ import { defineConfig } from '@playwright/test';
  * suite FAILS with the measured reason rather than skipping, so an unproven
  * titlebar drag or edge resize can never be reported as a pass.
  *
- * Run with: pnpm test:host-acceptance
+ * The suite refuses to touch the display unless the host declares itself with
+ * HQ_HOST_ACCEPTANCE=1, and it compiles and probes nothing at collection time.
+ *
+ * Run with: HQ_HOST_ACCEPTANCE=1 pnpm test:host-acceptance
  */
 export default defineConfig({
   testDir: './tests/host-acceptance',

@@ -17,7 +17,7 @@
  * The self-test exists because the XTEST extension can be present and answer
  * every call successfully while the display server silently discards the
  * events (XWayland under some compositors does exactly that). A test that
- * cannot move the pointer must skip and say so, not report a pass.
+ * cannot move the pointer must fail and say why, not report a pass.
  */
 #include <X11/Xlib.h>
 #include <X11/extensions/XTest.h>
