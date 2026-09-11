@@ -21,7 +21,7 @@ today and what is **not** claimed yet.
 | Nine probes | `src/main/health/probes.ts` | auth, runner, CLI, Core, updater, sync, conflicts, storage, permissions — 10s bound each |
 | CHECK_NOW ledger | `src/main/health/commands.ts` | ack → running → terminal; rejects expired/invalid; no mutating repairs |
 | Settings UI | `src/renderer/components/health-checks.tsx`, `src/renderer/screens/settings.tsx` | checking / healthy / degraded / stale / retry / unavailable |
-| Preview scenarios | `?scenario=health-healthy\|health-degraded\|health-stale\|health-checking` | UI fixtures only |
+| Preview scenarios | `/dev/companion?scenario=health-healthy\|health-degraded\|health-stale\|health-checking` | UI fixtures only |
 
 Unsupported or absent components return **skip/unknown**, never a fake pass.
 The permissions probe may create and remove a temporary marker file only.
