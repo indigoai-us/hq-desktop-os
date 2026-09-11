@@ -9,7 +9,8 @@ import { parseCompanionAction, type CompanionSnapshot, type ConflictChoice, type
 import { hqWebFlowUrl, type HqWebDestination } from '../shared/hq-web.js';
 import { AccountSession } from './auth.js';
 import { CredentialStore, secureStorageAvailable } from './credential-store.js';
-import { PreferenceStore, setLinuxAutostart, startupExecutable } from './preferences.js';
+import { PreferenceStore } from './preferences.js';
+import { applyLaunchAtLogin, launchAtLoginSupported } from './autostart.js';
 import { SyncSelectionStore } from './sync-selection.js';
 import { SyncSupervisor } from './sync-supervisor.js';
 import { pausedSync } from './sync-state.js';
@@ -36,6 +37,14 @@ export class CompanionService {
   readonly registry = new WorkspaceRegistry(app.getPath('userData'));
   private pending = false;
   trayAvailable = false;
+  /** Cleared when tray install fails so Settings can keep the window-required path. */
+  get launchAtLoginSupported(): boolean {
+    return launchAtLoginSupported({
+      packaged: app.isPackaged,
+      platform: process.platform,
+      env: process.env,
+    }).supported;
+  }
   readonly preferences = new PreferenceStore(app.getPath('userData'));
   readonly account = new AccountSession(new CredentialStore(app.getPath('userData')));
   readonly sync = new SyncSupervisor(this.account);
@@ -411,6 +420,8 @@ export class CompanionService {
       runtime: { version: '6.16.35', available: runtime.available, node: process.versions.node },
       credentials: { available: credentialsAvailable, backend },
       preferences: { ...this.preferences.state },
+      trayAvailable: this.trayAvailable,
+      launchAtLoginSupported: this.launchAtLoginSupported,
       health,
       diagnostics: buildDiagnosticsChecks({
         workspaceCount: state.workspaces.length,
@@ -517,11 +528,19 @@ export class CompanionService {
           break;
         }
         case 'set-preference': {
-          if (request.preference === 'closeToTray' && request.enabled && !this.trayAvailable) throw new Error('This desktop does not support keeping HQ in the tray. Keep the window open to continue syncing.');
+          if (request.preference === 'closeToTray' && request.enabled && !this.trayAvailable) {
+            throw new Error('This desktop does not support keeping HQ in the tray. Keep the window open to continue syncing.');
+          }
           if (request.preference === 'launchAtLogin') {
-            if (!app.isPackaged) throw new Error('Install HQ before turning on automatic startup.');
-            if (process.platform === 'linux') await setLinuxAutostart(app.getPath('home'), startupExecutable(process.execPath, { APPIMAGE: process.env.APPIMAGE, APPDIR: process.env.APPDIR }), request.enabled!);
-            else app.setLoginItemSettings({ openAtLogin: request.enabled!, path: process.execPath });
+            await applyLaunchAtLogin({
+              enabled: request.enabled!,
+              packaged: app.isPackaged,
+              platform: process.platform,
+              home: app.getPath('home'),
+              execPath: process.execPath,
+              env: process.env,
+              setLoginItemSettings: (settings) => app.setLoginItemSettings(settings),
+            });
           }
           await this.preferences.save({ ...this.preferences.state, [request.preference!]: request.enabled! });
           break;

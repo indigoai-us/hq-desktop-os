@@ -102,3 +102,21 @@ test('background operation is an explicit preference and preview changes stay si
   await expect(page.getByRole('checkbox', { name: 'Open HQ when I sign in' })).not.toBeChecked();
   await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveCount(1);
 });
+
+test('Linux without a tray keeps the window required and disables close-to-tray', async ({ page }) => {
+  await page.goto(`${url}/dev/companion?scenario=no-tray`);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const closeToTray = page.getByRole('checkbox', { name: 'Keep HQ running' });
+  await expect(closeToTray).toBeDisabled();
+  await expect(closeToTray).not.toBeChecked();
+  await expect(page.getByText(/does not support a tray/i)).toBeVisible();
+});
+
+test('WSL startup control stays visible and disabled without enabling a loop', async ({ page }) => {
+  await page.goto(`${url}/dev/companion?scenario=wsl-startup`);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const launchAtLogin = page.getByRole('checkbox', { name: 'Open HQ when I sign in' });
+  await expect(launchAtLogin).toBeDisabled();
+  await expect(launchAtLogin).not.toBeChecked();
+  await expect(page.getByText(/not available here/i)).toBeVisible();
+});

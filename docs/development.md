@@ -54,7 +54,8 @@ Required deterministic scenarios (`src/renderer/dev/scenarios.ts`):
 Also available: `setup-error`, `memberships-error`, Settings health fixtures
 `health-healthy`, `health-degraded`, `health-stale`, `health-checking`,
 `health-unavailable`, `health-unknown` (unknown maps to the unavailable UI),
-and US-016 diagnostics fixtures `runtime-missing` / `runtime-failed`.
+US-016 diagnostics fixtures `runtime-missing` / `runtime-failed`, and US-017
+background fixtures `no-tray` / `wsl-startup`.
 
 The preview banner is marked **Preview · Changes here are not saved.** Use
 **Reset preview** (or reload `/dev/companion` without a scenario) to return to

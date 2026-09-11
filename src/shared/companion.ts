@@ -37,6 +37,10 @@ export interface CompanionSnapshot {
   runtime: { version: string; available: boolean; node: string };
   credentials: CredentialStorageStatus;
   preferences: { closeToTray: boolean; launchAtLogin: boolean };
+  /** False when the host has no status tray — window stays required for lifecycle. */
+  trayAvailable: boolean;
+  /** False when unpackaged or inside WSL — start-at-login stays refused and visible. */
+  launchAtLoginSupported: boolean;
   diagnostics: { name: string; state: 'ok' | 'attention' | 'unavailable'; detail: string }[];
   health: CompanionHealth;
   /** Redacted support-report preview; set only after an explicit preview action. */

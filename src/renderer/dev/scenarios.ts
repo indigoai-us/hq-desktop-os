@@ -28,6 +28,8 @@ export const PREVIEW_SCENARIOS = [
   'health-unknown',
   'runtime-missing',
   'runtime-failed',
+  'no-tray',
+  'wsl-startup',
 ] as const;
 
 export type PreviewScenarioId = (typeof PREVIEW_SCENARIOS)[number];
@@ -96,6 +98,8 @@ export function createBasePreviewSnapshot(
     runtime: { version: '6.16.35', available: true, node: '24' },
     credentials: { available: true, backend: 'preview' },
     preferences: { closeToTray: false, launchAtLogin: false },
+    trayAvailable: true,
+    launchAtLoginSupported: true,
     diagnostics: [
       { name: 'App version', state: 'ok', detail: 'HQ Desktop OS' },
       { name: 'Workspace environment', state: 'attention', detail: '0 registered workspaces. No workspace selected.' },
@@ -388,6 +392,19 @@ export function applyPreviewScenario(
             }
           : item,
       );
+      return;
+    }
+    case 'no-tray': {
+      connectAccount(state);
+      state.trayAvailable = false;
+      state.preferences.closeToTray = false;
+      return;
+    }
+    case 'wsl-startup': {
+      connectAccount(state);
+      state.platform = 'linux';
+      state.launchAtLoginSupported = false;
+      state.preferences.launchAtLogin = false;
       return;
     }
     default: {

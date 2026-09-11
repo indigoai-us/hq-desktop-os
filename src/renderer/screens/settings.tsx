@@ -34,29 +34,37 @@ export function SettingsScreen(props: {
       </header>
       <section className="content-section"><ThemeControl /></section>
       <AccountScreen state={state} enabled={enabled} connected={connected} run={run} layout="settings" />
-      <section className="setting-row">
+      <section className="setting-row" data-testid="setting-close-to-tray">
         <div>
           <h2>Keep HQ running</h2>
-          <p>Continue syncing after you close this window.</p>
+          <p>
+            {state.trayAvailable
+              ? 'Continue syncing after you close this window. Use Quit HQ in the tray to stop owned sync.'
+              : 'This desktop does not support a tray. Keep this window open to continue syncing, or Quit from the app menu.'}
+          </p>
         </div>
         <input
           type="checkbox"
           aria-label="Keep HQ running"
           checked={state.preferences.closeToTray}
-          disabled={!enabled}
+          disabled={!enabled || !state.trayAvailable}
           onChange={(event) => void run({ action: 'set-preference', preference: 'closeToTray', enabled: event.target.checked }, 'Saving your preference')}
         />
       </section>
-      <section className="setting-row">
+      <section className="setting-row" data-testid="setting-launch-at-login">
         <div>
           <h2>Open HQ when I sign in</h2>
-          <p>Start HQ when you sign in to this computer.</p>
+          <p>
+            {state.launchAtLoginSupported
+              ? 'Start HQ when you sign in to this computer. Uses your per-user startup settings — no admin privileges.'
+              : 'Automatic startup is not available here (install HQ first, or open it from Windows when using WSL).'}
+          </p>
         </div>
         <input
           type="checkbox"
           aria-label="Open HQ when I sign in"
           checked={state.preferences.launchAtLogin}
-          disabled={!enabled}
+          disabled={!enabled || !state.launchAtLoginSupported}
           onChange={(event) => void run({ action: 'set-preference', preference: 'launchAtLogin', enabled: event.target.checked }, 'Saving your preference')}
         />
       </section>

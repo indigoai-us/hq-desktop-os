@@ -143,7 +143,15 @@ export function createPreviewClient(): CompanionClient {
           pendingCount: 0,
         };
       }
-      if (request.action === 'set-preference') state.preferences[request.preference!] = request.enabled!;
+      if (request.action === 'set-preference') {
+        if (request.preference === 'closeToTray' && request.enabled && !state.trayAvailable) {
+          throw new Error('This desktop does not support keeping HQ in the tray. Keep the window open to continue syncing.');
+        }
+        if (request.preference === 'launchAtLogin' && request.enabled && !state.launchAtLoginSupported) {
+          throw new Error('Automatic startup is not available inside WSL. Open HQ from Windows after you sign in, or start it yourself when you need it.');
+        }
+        state.preferences[request.preference!] = request.enabled!;
+      }
       if (request.action === 'pause-sync') {
         state.sync.phase = 'paused';
         state.sync.message = 'Sync is paused';

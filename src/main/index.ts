@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, protocol, session, Tray } from 'electron';
+import { app, BrowserWindow, protocol, session } from 'electron';
 import { join, resolve } from 'node:path';
 import { isReviewedHttpsLink } from '../shared/platform.js';
 import { APP_ENTRY_URL, APP_SCHEME, serveAppAsset } from './app-protocol.js';
@@ -8,9 +8,11 @@ import { ShutdownGate } from './shutdown.js';
 import { CompanionService } from './companion.js';
 import { installApplicationMenu } from './menu.js';
 import { isAllowedNavigation } from './navigation.js';
+import { closeBehavior, windowsClosedBehavior } from './lifecycle.js';
+import { TrayController, trayIconPath } from './tray.js';
 
 let companionService: CompanionService | undefined;
-let tray: Tray | undefined;
+let trayController: TrayController | undefined;
 let quitting = false;
 
 /**
@@ -122,7 +124,15 @@ async function createWindow(rendererUrl: string): Promise<BrowserWindow> {
   });
 
   window.on('close', event => {
-    if (!quitting && tray && companionService?.preferences.state.closeToTray) { event.preventDefault(); window.hide(); }
+    const prefs = companionService?.preferences.state;
+    if (closeBehavior({
+      quitting,
+      trayAvailable: !!trayController?.available,
+      closeToTray: !!prefs?.closeToTray,
+    }) === 'hide-to-tray') {
+      event.preventDefault();
+      window.hide();
+    }
   });
   window.on('focus', () => {
     companionService?.onWindowFocus();
@@ -162,18 +172,18 @@ void app.whenReady().then(async () => {
     if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
     else void createWindow(rendererUrl).catch(error => console.error('HQ window could not be opened', error instanceof Error ? error.name : 'unknown'));
   };
-  try {
-    const icon = nativeImage.createFromPath(join(app.getAppPath(), 'build/icon.png')).resize({ width: 22, height: 22 });
-    if (icon.isEmpty()) throw new Error('Tray icon is missing');
-    tray = new Tray(icon); companion.trayAvailable = true; tray.setToolTip('HQ'); tray.on('click', showWindow);
-    const updateTray = () => tray?.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Open HQ', click: showWindow },
-      { label: 'Pause sync', enabled: companion.sync.running, click: () => { void companion.request({ action: 'pause-sync' }).catch(error => console.error('Sync could not be paused', error instanceof Error ? error.name : 'unknown')); } },
-      { type: 'separator' }, { label: 'Quit HQ', click: () => app.quit() },
-    ]));
-    updateTray(); const timer = setInterval(updateTray, 5000);
-    app.once('will-quit', () => { clearInterval(timer); tray?.destroy(); tray = undefined; });
-  } catch (error) { console.error('HQ tray is unavailable', error instanceof Error ? error.name : 'unknown'); }
+
+  trayController = new TrayController();
+  companion.trayAvailable = trayController.install(trayIconPath(app.getAppPath()), {
+    showWindow,
+    pauseSync: () => {
+      void companion.request({ action: 'pause-sync' }).catch(error =>
+        console.error('Sync could not be paused', error instanceof Error ? error.name : 'unknown'));
+    },
+    syncRunning: () => companion.sync.running,
+    quit: () => app.quit(),
+  });
+  app.once('will-quit', () => { trayController?.destroy(); trayController = undefined; });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -186,5 +196,12 @@ void app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin' && (!tray || !companionService?.preferences.state.closeToTray)) app.quit();
+  const prefs = companionService?.preferences.state;
+  if (windowsClosedBehavior({
+    platform: process.platform,
+    trayAvailable: !!trayController?.available,
+    closeToTray: !!prefs?.closeToTray,
+  }) === 'quit') {
+    app.quit();
+  }
 });
