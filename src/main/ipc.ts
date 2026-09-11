@@ -15,6 +15,7 @@ import {
   type PlatformInfo,
   type PlatformResult,
 } from '../shared/platform.js';
+import { CompanionService } from './companion.js';
 import { isTrustedIpcSender, type IpcSenderSnapshot } from './ipc-guard.js';
 
 export type { IpcSenderSnapshot } from './ipc-guard.js';
@@ -81,7 +82,7 @@ type Handler = (
   payload: unknown,
 ) => Promise<PlatformResult<unknown>> | PlatformResult<unknown>;
 
-export function registerPlatformIpc(rendererUrl: string): void {
+export function registerPlatformIpc(rendererUrl: string, companion?: CompanionService): void {
   const guard = (handler: Handler) => {
     return async (
       event: IpcMainInvokeEvent,
@@ -95,6 +96,11 @@ export function registerPlatformIpc(rendererUrl: string): void {
   };
 
   const handlers: Record<string, Handler> = {
+    [IPC_CHANNELS.companion]: async (_event, payload) => {
+      if (!companion) return failUnavailable('Desktop service is unavailable.');
+      try { return { ok: true, value: await companion.request(payload) }; }
+      catch (error) { return failUnavailable(error instanceof Error ? error.message : 'Desktop operation failed.'); }
+    },
     [IPC_CHANNELS.getInfo]: async (): Promise<PlatformResult<PlatformInfo>> => ({
       ok: true,
       value: {

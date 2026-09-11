@@ -4,6 +4,7 @@ import { isReviewedHttpsLink } from '../shared/platform.js';
 import { APP_ENTRY_URL, APP_SCHEME, serveAppAsset } from './app-protocol.js';
 import { DEVELOPMENT_CSP, PACKAGED_CSP } from './csp.js';
 import { openReviewedExternal, registerPlatformIpc } from './ipc.js';
+import { CompanionService } from './companion.js';
 import { installApplicationMenu } from './menu.js';
 import { isAllowedNavigation } from './navigation.js';
 
@@ -119,12 +120,22 @@ async function createWindow(rendererUrl: string): Promise<BrowserWindow> {
   return window;
 }
 
+const ownsInstance = app.requestSingleInstanceLock();
+if (!ownsInstance) app.quit();
+app.on('second-instance', () => {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+});
+
 void app.whenReady().then(async () => {
+  if (!ownsInstance) return;
   const rendererUrl = rendererEntryUrl();
   if (app.isPackaged) registerAppProtocol();
   applyContentSecurityPolicy(app.isPackaged);
   installApplicationMenu(app.isPackaged);
-  registerPlatformIpc(rendererUrl);
+  const companion = new CompanionService();
+  await companion.initialize();
+  registerPlatformIpc(rendererUrl, companion);
 
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false);

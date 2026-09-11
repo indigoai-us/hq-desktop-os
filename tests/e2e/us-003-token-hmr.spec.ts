@@ -1,8 +1,7 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import type { ViteDevServer } from 'vite';
-import { startFixtureServer, stopFixtureServer } from '../helpers/renderer-dev-server';
+import { startFixtureServer, type FixtureServer } from '../helpers/renderer-dev-server';
 
 /**
  * Token hot-module replacement, proven on an isolated copy of the renderer.
@@ -34,7 +33,7 @@ test.describe.configure({ mode: 'serial' });
 
 test.describe('US-003 development token HMR', () => {
   let fixture: string;
-  let server: ViteDevServer | undefined;
+  let server: FixtureServer | undefined;
   let tokensPath: string;
 
   test.beforeAll(async () => {
@@ -50,14 +49,18 @@ test.describe('US-003 development token HMR', () => {
       root,
       host: HOST,
       port: PORT,
+      // Registered with the server, so it is deleted only after the process
+      // that owned the watcher over it has exited.
+      fixtureDir: fixture,
     });
   });
 
   test.afterAll(async () => {
-    // The fixture copy is handed to the teardown helper so it is deleted only
-    // after the server has confirmed shutdown — removing a tree the watcher is
-    // still holding is how teardown becomes the next run's mystery failure.
-    const outcome = await stopFixtureServer(server, { fixtureDir: fixture });
+    // The fixture tree is deleted only after the process that owned the watcher
+    // over it has exited — removing a tree a live watcher is holding is how
+    // teardown becomes the next run's mystery failure.
+    const outcome = await server!.stop({ graceMs: 3_000 });
+    expect(outcome.ownerAliveAtCleanup, 'owner still running at cleanup').toBe(false);
     expect(outcome.cacheRemoved, 'optimizer cache survived teardown').toBe(true);
     expect(outcome.fixtureRemoved, 'fixture copy survived teardown').toBe(true);
   });
@@ -70,14 +73,14 @@ test.describe('US-003 development token HMR', () => {
       const themeOption = style('[data-testid="theme-option-light"]');
       return {
         selectedBackground: selected.backgroundColor,
-        buttonBorder: style('[data-testid="check-native"]').borderTopColor,
+        buttonBorder: style('[data-testid="selected-sample"]').borderTopColor,
         themeOptionBorder: themeOption.borderTopColor,
         bodyColor: getComputedStyle(document.body).color,
         // Spacing: the actions row gap, a control's padding, the page padding
         // and the utility-driven radiogroup gap.
-        actionsGap: style('.hq-actions').gap,
-        buttonPadding: style('[data-testid="check-native"]').paddingTop,
-        pagePadding: style('.hq-page').paddingTop,
+        actionsGap: style('.companion-sidebar nav').gap,
+        buttonPadding: style('[data-testid="selected-sample"]').paddingTop,
+        pagePadding: style('.companion-main').paddingTop,
         radiogroupGap: style('[role="radiogroup"]').gap,
         // Typography.
         bodyFontSize: getComputedStyle(document.body).fontSize,

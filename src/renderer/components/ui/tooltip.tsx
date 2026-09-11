@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Tooltip as TooltipPrimitive } from 'radix-ui';
+import { ZoomPortal } from '@/lib/zoom-portal';
 import { cn } from '@/lib/utils';
 
 /**
@@ -32,11 +33,13 @@ function TooltipContent({
   className,
   sideOffset = 4,
   children,
+  style,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
   return (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
+      <ZoomPortal>{(zoom) => <TooltipPrimitive.Content
+        style={{ ...style, zoom }}
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
@@ -46,7 +49,7 @@ function TooltipContent({
         {...props}
       >
         {children}
-      </TooltipPrimitive.Content>
+      </TooltipPrimitive.Content>}</ZoomPortal>
     </TooltipPrimitive.Portal>
   );
 }

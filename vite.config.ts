@@ -29,7 +29,7 @@ function devServerOrigin(server: ViteDevServer | undefined): string | null {
 
 export default defineConfig({
   root: 'src/renderer',
-  base: './',
+  base: '/',
   plugins: [
     react(),
     tailwindcss(),

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import type { ViteDevServer } from 'vite';
 import { openGallery, resolveTokenColor, startGalleryServer, stopGalleryServer } from '../helpers/dev-gallery';
+import type { FixtureServer } from '../helpers/renderer-dev-server';
 
 /**
  * US-004 criterion 1: the seven shared primitives render, and their normal,
@@ -14,7 +14,7 @@ const PORT = 4341;
 test.describe.configure({ mode: 'serial' });
 
 test.describe('US-004 gallery primitives and states', () => {
-  let server: ViteDevServer | undefined;
+  let server: FixtureServer | undefined;
   let url = '';
 
   test.beforeAll(async () => {

@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { ViteDevServer } from 'vite';
-import { startFixtureServer, stopFixtureServer } from '../helpers/renderer-dev-server';
+import { startFixtureServer, type FixtureServer } from '../helpers/renderer-dev-server';
 import { DEV_COMPONENT_GALLERY_PATH } from '../../src/renderer/dev/gallery-path';
 
 /**
@@ -20,7 +19,7 @@ const ORIGIN = `http://${HOST}:${PORT}`;
 const repoRoot = process.cwd();
 
 describe('development gallery route', () => {
-  let server: ViteDevServer | undefined;
+  let server: FixtureServer | undefined;
 
   beforeAll(async () => {
     server = await startFixtureServer({
@@ -35,9 +34,13 @@ describe('development gallery route', () => {
     // Teardown is checked, not assumed: this server owns a private optimizer
     // cache directory and must not leave it behind. A failed cleanup fails the
     // suite rather than quietly leaking into the next run.
-    // Throws on a rejected or overrunning shutdown, so the suite cannot pass on
-    // a server that never actually stopped.
-    const outcome = await stopFixtureServer(server);
+    // Throws when Vite's close() rejected or the owner survived termination, so
+    // the suite cannot pass on a server that never actually stopped. A forced
+    // shutdown is reported rather than hidden: the owner's exit is what proves
+    // its watcher, environments, plugins and optimizer are gone.
+    const outcome = await server!.stop({ graceMs: 3_000 });
+    expect(['graceful', 'forced']).toContain(outcome.shutdown);
+    expect(outcome.ownerAliveAtCleanup).toBe(false);
     if (!outcome.cacheRemoved) {
       throw new Error(`dev server left its optimizer cache behind: ${outcome.cacheDir}`);
     }
@@ -47,8 +50,8 @@ describe('development gallery route', () => {
     // Sharing node_modules/.vite/deps with other servers — including the
     // previews another session owns — lets one optimizer commit invalidate
     // another server's modules mid-request.
-    expect(server?.config.cacheDir).toContain('hq-vite-cache-');
-    expect(server?.config.cacheDir).not.toContain('node_modules');
+    expect(server?.cacheDir).toContain('hq-vite-cache-');
+    expect(server?.cacheDir).not.toContain('node_modules');
   });
 
   it('serves the HTML entry for the gallery path, with and without a trailing slash', async () => {

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { ViteDevServer } from 'vite';
 import { openGallery, startGalleryServer, stopGalleryServer } from '../helpers/dev-gallery';
+import type { FixtureServer } from '../helpers/renderer-dev-server';
 
 /**
  * Reduced motion, proven from what the browser computes rather than from CSS
@@ -52,7 +52,7 @@ async function motion(page: Page): Promise<Motion> {
 test.describe.configure({ mode: 'serial' });
 
 test.describe('US-004 motion honours the reduced-motion preference', () => {
-  let server: ViteDevServer | undefined;
+  let server: FixtureServer | undefined;
   let url = '';
 
   test.beforeAll(async () => {

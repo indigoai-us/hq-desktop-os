@@ -139,7 +139,7 @@ describe('US-004 accessible shadcn component foundation', () => {
     expect(isDevGalleryPath('/')).toBe(false);
     expect(isDevGalleryPath('/components')).toBe(false);
 
-    const main = read('src/renderer/main.tsx');
+    const main = read('src/renderer/main.tsx') + read('src/renderer/companion-app.tsx');
     expect(main).toContain('import.meta.env.DEV');
     expect(main).toContain('isDevGalleryPath');
     expect(main).toContain("import('./dev/components')");

@@ -40,3 +40,7 @@ CI is deferred: no workflow is committed on this branch and no CI run has verifi
 The packaged renderer is served from a confined `app://hq-desktop-os` origin rather than `file://`, so the renderer cannot read host files outside the `PlatformClient` boundary, and the File System Access API is switched off. The window keeps its native OS titlebar, controls, dragging and resize; the page repeats none of that, and Relaunch and Quit live in the application menu. See `docs/platform-boundary.md`.
 
 Dependency versions and pnpm are pinned. `pnpm-workspace.yaml` requires packages to be at least 1,440 minutes old before resolution and permits install scripts only for Electron and esbuild. Commit `pnpm-lock.yaml` with dependency changes, then verify a frozen install, typecheck, lint, unit tests, and build. Do not use private registry dependencies or commit credentials.
+
+## Local test build
+
+A Linux `.deb` can be built with `pnpm package:deb`. See [available features, unfinished work, and installation checks](docs/local-test-build.md). This is a local test build; account sign-in and managed sync are not enabled yet.

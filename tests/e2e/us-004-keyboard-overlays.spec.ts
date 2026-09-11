@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { ViteDevServer } from 'vite';
 import { openGallery, startGalleryServer, stopGalleryServer } from '../helpers/dev-gallery';
+import type { FixtureServer } from '../helpers/renderer-dev-server';
 
 /**
  * US-004 criterion 2: dialogs and selects are operable by keyboard alone, with
@@ -32,7 +32,7 @@ const focusedTestId = (page: Page) =>
 test.describe.configure({ mode: 'serial' });
 
 test.describe('US-004 keyboard-only dialog and select', () => {
-  let server: ViteDevServer | undefined;
+  let server: FixtureServer | undefined;
   let url = '';
 
   test.beforeAll(async () => {

@@ -202,7 +202,7 @@ describe('isolated theme-init artifact', () => {
 
   it('is referenced as a same-origin classic script ahead of the module entry', () => {
     const html = readFileSync(join(process.cwd(), 'src/renderer/index.html'), 'utf8');
-    const initAt = html.indexOf('src="./theme-init.js"');
+    const initAt = html.indexOf('src="/theme-init.js"');
     const moduleAt = html.indexOf('src="/main.tsx"');
     expect(initAt).toBeGreaterThan(-1);
     expect(moduleAt).toBeGreaterThan(initAt);

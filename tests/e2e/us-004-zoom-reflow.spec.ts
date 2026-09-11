@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { ViteDevServer } from 'vite';
 import {
   openGallery,
   resolveTokenColor,
@@ -7,6 +6,7 @@ import {
   stopGalleryServer,
   tabToTestId,
 } from '../helpers/dev-gallery';
+import type { FixtureServer } from '../helpers/renderer-dev-server';
 
 /**
  * US-004 criterion 3: at 200% zoom, labels, errors, progress and tooltips stay
@@ -151,7 +151,7 @@ async function readability(page: Page, subjects: readonly string[]): Promise<Rea
     let measured = 0;
 
     const targets: { id: string; element: HTMLElement }[] = [
-      ...[...document.querySelectorAll<HTMLElement>('label')].map((element, index) => ({
+      ...(wanted.includes('gallery-email-error') ? [...document.querySelectorAll<HTMLElement>('label')] : []).map((element, index) => ({
         id: `label-${index}`,
         element,
       })),
@@ -257,7 +257,7 @@ async function revealTooltip(page: Page): Promise<void> {
 test.describe.configure({ mode: 'serial' });
 
 test.describe('US-004 readability at a 200% zoom surrogate', () => {
-  let server: ViteDevServer | undefined;
+  let server: FixtureServer | undefined;
   let url = '';
 
   test.beforeAll(async () => {
@@ -326,6 +326,8 @@ test.describe('US-004 readability at a 200% zoom surrogate', () => {
       );
       await expect(zoomedPage.getByTestId('gallery-pending')).toHaveText(/Pending · 42% complete/);
       await expect(zoomedPage.getByRole('progressbar')).toBeVisible();
+      // Geometry measurement scrolls subjects into view, dismissing Radix's tooltip.
+      await revealTooltip(zoomedPage);
       await expect(zoomedPage.getByRole('tooltip')).toBeVisible();
     } finally {
       await zoomedContext.close();

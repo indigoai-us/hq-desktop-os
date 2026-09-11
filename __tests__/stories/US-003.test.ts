@@ -251,8 +251,8 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     expect(styles).toContain('stroke: currentColor');
     expect(styles).toContain('fill: none');
 
-    const main = read('src/renderer/main.tsx');
-    expect(main).toContain('data-selected="true"');
+    const main = read('src/renderer/main.tsx') + read('src/renderer/companion-app.tsx');
+    expect(main).toContain('data-selected={section === name}');
     expect(main).toContain('ThemeControl');
     // US-002 native frame: still no redundant window-control IPC wiring in the page.
     expect(main).not.toMatch(/platform\.windowMinimize|platform\.windowMaximize|platform\.windowClose/);
@@ -284,7 +284,7 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     expect(development['script-src']).toContain("'self'");
 
     const html = read('src/renderer/index.html');
-    expect(html).toContain('src="./theme-init.js"');
+    expect(html).toContain('src="/theme-init.js"');
     expect(html).toContain('data-theme="system"');
     // No inline theme bootstrap script body.
     expect(html).not.toMatch(/<script(?![^>]*src=)[^>]*>[^<]*localStorage/i);
@@ -294,7 +294,7 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     // Vite copies publicDir verbatim, so the bootstrap ships as a same-origin
     // classic script next to index.html.
     expect(read('src/renderer/public/theme-init.js')).toContain(THEME_STORAGE_KEY);
-    expect(read('src/renderer/index.html')).toContain('src="./theme-init.js"');
+    expect(read('src/renderer/index.html')).toContain('src="/theme-init.js"');
 
     // Run the shipped build transform over the shipped document.
     const built = transformHtml('production-csp', read('src/renderer/index.html'), {});
@@ -303,7 +303,7 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     );
     expect(csp['script-src']).toEqual(["'self'"]);
     expect(csp['connect-src']).toEqual(["'self'"]);
-    expect(built).toContain('src="./theme-init.js"');
+    expect(built).toContain('src="/theme-init.js"');
 
     const docs = read('docs/theme-tokens.md');
     expect(docs).toContain('theme-init.js');

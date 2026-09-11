@@ -56,7 +56,7 @@ describe('US-002 typed platform boundary behaviour', () => {
     await client.processListManaged();
     await client.updaterGetStatus();
 
-    expect(calls.map((call) => call.channel)).toEqual([...IPC_CHANNEL_LIST]);
+    expect(calls.map((call) => call.channel)).toEqual(IPC_CHANNEL_LIST.filter((channel) => channel !== IPC_CHANNELS.companion));
     expect(calls.find((call) => call.channel === IPC_CHANNELS.openExternal)?.payload).toEqual({
       url: REVIEWED_HTTPS_LINKS[0],
     });
@@ -233,7 +233,10 @@ describe.sequential('US-002 built production artifacts', () => {
     const html = await readFile(builtRenderer, 'utf8');
     expect(html).not.toContain('file://');
     for (const reference of [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]!)) {
-      expect(reference.startsWith('./'), reference).toBe(true);
+      const resolved = new URL(reference, 'app://hq-desktop-os/');
+      expect(resolved.protocol, reference).toBe('app:');
+      expect(resolved.hostname, reference).toBe('hq-desktop-os');
+      expect(resolved.pathname, reference).toMatch(/^\/(?:assets\/[^/]+|theme-init\.js)$/);
     }
   });
 });

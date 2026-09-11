@@ -1,6 +1,6 @@
 import { join } from 'node:path';
-import type { Page, ViteDevServer } from './dev-gallery-types';
-import { startFixtureServer, stopFixtureServer } from './renderer-dev-server';
+import type { Page } from './dev-gallery-types';
+import { startFixtureServer, type FixtureServer } from './renderer-dev-server';
 import { DEV_COMPONENT_GALLERY_PATH } from '../../src/renderer/dev/gallery-path';
 
 /**
@@ -12,7 +12,7 @@ import { DEV_COMPONENT_GALLERY_PATH } from '../../src/renderer/dev/gallery-path'
 export const GALLERY_HOST = '127.0.0.1';
 
 export async function startGalleryServer(port: number): Promise<{
-  server: ViteDevServer;
+  server: FixtureServer;
   url: string;
 }> {
   const repoRoot = process.cwd();
@@ -22,18 +22,20 @@ export async function startGalleryServer(port: number): Promise<{
     host: GALLERY_HOST,
     port,
   });
-  return { server, url: `http://${GALLERY_HOST}:${port}${DEV_COMPONENT_GALLERY_PATH}` };
+  return { server, url: `${server.url}${DEV_COMPONENT_GALLERY_PATH}` };
 }
 
 /**
- * Shut the spec's server down and confirm its optimizer cache was removed.
+ * Shut the spec's server down and confirm its owned resources are gone.
  *
- * `stopFixtureServer` throws when the shutdown rejects or outlives its bound, so
- * that failure reaches the spec instead of being swallowed; a surviving cache
- * directory is raised here for the same reason.
+ * `stop()` throws when Vite's close() rejected or when the owner process
+ * somehow survived termination, so that failure reaches the spec instead of
+ * being swallowed; a surviving cache directory is raised here for the same
+ * reason.
  */
-export async function stopGalleryServer(server: ViteDevServer | undefined): Promise<void> {
-  const outcome = await stopFixtureServer(server);
+export async function stopGalleryServer(server: FixtureServer | undefined): Promise<void> {
+  if (!server) return;
+  const outcome = await server.stop();
   if (!outcome.cacheRemoved) {
     throw new Error(`gallery server left its optimizer cache behind: ${outcome.cacheDir}`);
   }
@@ -42,10 +44,12 @@ export async function stopGalleryServer(server: ViteDevServer | undefined): Prom
 /**
  * Walk keyboard focus to a control the way a keyboard user would.
  *
- * This matters beyond tidiness: Radix opens a tooltip on focus only when the
- * trigger matches `:focus-visible`, which a programmatic `focus()` on a freshly
- * loaded page does not. Arriving by key press is both the honest interaction and
- * the one the component answers.
+ * This matters beyond tidiness. A programmatic `focus()` on a freshly loaded
+ * page did not open the tooltip, while arriving by key press does — the
+ * difference is established by the two runs, but the mechanism inside Radix is
+ * NOT: an earlier claim that the trigger must match `:focus-visible` was wrong
+ * (its focus handler checks a pointer-down ref), so no mechanism is asserted
+ * here. Key presses are in any case the interaction this criterion is about.
  */
 export async function tabToTestId(page: Page, testId: string, limit = 30): Promise<void> {
   await page.evaluate(() => {
