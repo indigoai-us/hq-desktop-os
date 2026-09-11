@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, FileDown, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
+import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
 import { activeWorkspace, type CompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion';
+import { HEALTH_PREVIEW_FIXTURES } from '../shared/health-fixtures';
 import { createCompanionClient, type CompanionClient } from './companion-client';
-import { ThemeControl } from './theme';
 import { HqMark } from './components/hq-mark';
 import { ConflictList } from './components/conflict-list';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
+import { SettingsScreen } from './screens/settings';
 
 const sections = [{ name: 'Workspace', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
 type Section = typeof sections[number]['name'];
@@ -115,16 +116,15 @@ export function CompanionApp() {
         {!workspace && <p className="notice">Choose your workspace first to use these shortcuts.</p>}
         <section>{[{ title: 'Files', description: 'Browse and organize your work.', action: 'open-folder' as const, icon: FolderOpen }, { title: 'Terminal', description: 'For when you want to work with commands.', action: 'open-terminal' as const, icon: Terminal }].map(({ title, description, action, icon: Icon }) => <div className="tool-row" key={title}><Icon size={22}/><div><h2>{title}</h2><p>{description}</p></div><Button variant="ghost" disabled={!enabled || !workspace} onClick={() => void run({ action, workspaceId: workspace!.id }, `Opening ${title.toLowerCase()}`)}>Open {title.toLowerCase()}<ArrowUpRight size={15}/></Button></div>)}</section>
       </>}
-      {section === 'Settings' && <>
-        <header className="page-heading"><h1>Settings</h1><p className="lead">Make HQ feel at home.</p></header>
-        <section className="content-section"><ThemeControl /></section>
-        <section className="setting-row"><div><h2>Your account</h2><p>{connected ? state?.account.label : 'You’re not signed in on this computer.'}</p></div><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: connected ? 'sign-out' : 'sign-in' }, connected ? 'Signing out' : 'Opening sign-in')}>{connected ? 'Sign out' : 'Sign in'}</Button></section>
-        <section className="setting-row"><div><h2>Keep HQ running</h2><p>Continue syncing after you close this window.</p></div><input type="checkbox" aria-label="Keep HQ running" checked={state?.preferences.closeToTray ?? false} disabled={!enabled} onChange={event => void run({ action: 'set-preference', preference: 'closeToTray', enabled: event.target.checked }, 'Saving your preference')}/></section>
-        <section className="setting-row"><div><h2>Open HQ when I sign in</h2><p>Start HQ when you sign in to this computer.</p></div><input type="checkbox" aria-label="Open HQ when I sign in" checked={state?.preferences.launchAtLogin ?? false} disabled={!enabled} onChange={event => void run({ action: 'set-preference', preference: 'launchAtLogin', enabled: event.target.checked }, 'Saving your preference')}/></section>
-        <section className="setting-row"><div><h2>Need a hand?</h2><p>Save a private report to share when asking for help.</p></div><Button variant="ghost" disabled={!enabled} onClick={() => void run({ action: 'export-diagnostics' }, 'Saving your support report')}><FileDown size={16}/>Save support report</Button></section>
-        <details className="support-details"><summary>What’s included in the report?</summary><p>The report lists the app version and checks that help find a problem. It does not include your files, folder locations, account details, or passwords. Nothing is sent automatically.</p></details>
-        <p className="about">HQ · {state?.version ?? 'Desktop'}</p>
-      </>}
+      {section === 'Settings' && state && (
+        <SettingsScreen
+          state={state}
+          health={state.health ?? HEALTH_PREVIEW_FIXTURES.unavailable}
+          enabled={enabled}
+          connected={connected}
+          run={run}
+        />
+      )}
       <Dialog open={!!removeId} onOpenChange={(open) => { if (!open) setRemoveId(undefined); }}><DialogContent><DialogTitle>Remove this workspace?</DialogTitle><DialogDescription>Your folder and its files will stay on this computer. You can add it again anytime.</DialogDescription><div className="dialog-actions"><Button variant="outline" onClick={() => setRemoveId(undefined)}>Keep workspace</Button><Button onClick={() => { const id = removeId!; setRemoveId(undefined); void run({ action: 'remove-workspace', workspaceId: id }, 'Removing workspace'); }}>Remove from app</Button></div></DialogContent></Dialog>
     </main>
   </div>;

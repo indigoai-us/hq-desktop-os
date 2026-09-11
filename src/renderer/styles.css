@@ -346,3 +346,19 @@ button:focus-visible { transition-property: color, background-color, border-colo
 .conflict-action p { margin: 0; color: var(--muted-foreground); font-size: var(--text-metadata); max-width: 48ch; }
 
 .setting-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--foreground); cursor: pointer; }
+
+.health-panel { margin: 28px 0; padding: 20px 0; border-top: 1px solid var(--border); }
+.health-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.health-heading h2 { margin: 0 0 4px; font-size: var(--text-body); }
+.health-heading p { margin: 0; color: var(--muted-foreground); font-size: var(--text-secondary); }
+.health-check-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.health-check-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 12px; border-radius: var(--radius); background: var(--muted); }
+.health-check-list strong { display: block; font-size: var(--text-secondary); }
+.health-check-list p { margin: 2px 0 0; color: var(--muted-foreground); font-size: var(--text-metadata); }
+.health-check-state { font-size: var(--text-metadata); color: var(--muted-foreground); white-space: nowrap; }
+.health-status { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: var(--muted-foreground); }
+.health-status-healthy { background: var(--status-success, #16a34a); }
+.health-status-degraded, .health-status-retry { background: var(--status-warning, #d97706); }
+.health-status-checking { background: var(--ring); }
+.health-status-stale, .health-status-unavailable { background: var(--muted-foreground); }
+.health-footnote { margin: 12px 0 0; color: var(--muted-foreground); font-size: var(--text-metadata); max-width: 56ch; }

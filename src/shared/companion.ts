@@ -1,3 +1,5 @@
+import type { CompanionHealth } from './health.js';
+
 /** Serializable desktop state. Credentials and arbitrary host commands never cross IPC. */
 export interface Workspace {
   id: string;
@@ -25,6 +27,7 @@ export interface CompanionSnapshot {
   credentials: { available: boolean; backend: string };
   preferences: { closeToTray: boolean; launchAtLogin: boolean };
   diagnostics: { name: string; state: 'ok' | 'attention' | 'unavailable'; detail: string }[];
+  health: CompanionHealth;
 }
 export const COMPANION_ACTIONS = ['snapshot', 'create-workspace', 'resume-setup', 'cancel-setup', 'reset-setup', 'sign-in', 'cancel-sign-in', 'pause-sync', 'resume-sync', 'resolve-conflicts', 'load-sync-scopes', 'select-sync-scope', 'attach-workspace', 'select-workspace', 'remove-workspace', 'open-folder', 'open-terminal', 'export-diagnostics', 'diagnostics', 'set-preference', 'sign-out'] as const;
 export type CompanionActionName = typeof COMPANION_ACTIONS[number];

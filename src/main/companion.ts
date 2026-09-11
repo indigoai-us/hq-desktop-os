@@ -13,6 +13,12 @@ import { SyncSelectionStore } from './sync-selection.js';
 import { SyncSupervisor } from './sync-supervisor.js';
 import { loadScopes, ensurePersonalStorage, WorkspaceAccounts, type SyncScope } from './sync-scopes.js';
 import { WorkspaceRegistry } from './workspaces.js';
+import { HealthCommandLedger } from './health/commands.js';
+import { runHealthProbes } from './health/probes.js';
+import { HealthReporter } from './health/reporter.js';
+import { HealthStateStore } from './health/state.js';
+import { companionHealthFromResults, unavailableHealth } from './health/view.js';
+import type { CompanionHealth } from '../shared/health.js';
 
 export class CompanionService {
   readonly registry = new WorkspaceRegistry(app.getPath('userData'));
@@ -29,6 +35,15 @@ export class CompanionService {
   private restoreCanceled = false;
   private restoreJob?: Promise<void>;
   private readonly selection = new SyncSelectionStore(app.getPath('userData'));
+  private readonly healthState = new HealthStateStore(app.getPath('userData'));
+  private readonly healthCommands = new HealthCommandLedger(app.getPath('userData'));
+  private readonly healthReporter = new HealthReporter({
+    state: this.healthState,
+    reportingEnabled: false,
+    appVersion: app.getVersion(),
+  });
+  private health: CompanionHealth = unavailableHealth();
+  private healthRunning = false;
   private async saveSyncChoice(enabled: boolean): Promise<void> {
     const id = this.registry.snapshot.activeWorkspaceId;
     const sub = this.account.identity?.sub;
@@ -116,7 +131,7 @@ export class CompanionService {
   private setupAbort?: AbortController;
   private readonly journal = new SetupJournal(join(app.getPath('userData'), 'setup.json'));
   private setupJob?: Promise<void>;
-  async shutdown(): Promise<void> { this.closing = true; this.setupAbort?.abort(); this.loginAbort?.abort(); await this.restoreJob; await Promise.all([this.setupJob, this.loginJob, this.sync.stop()]); }
+  async shutdown(): Promise<void> { this.closing = true; this.setupAbort?.abort(); this.loginAbort?.abort(); this.healthReporter.dispose(); await this.restoreJob; await Promise.all([this.setupJob, this.loginJob, this.sync.stop()]); }
   private beginSetup(root: string): void {
     if (this.setupAbort) throw new Error('Setup is already running.');
     this.setup ??= initialSetup(root);
@@ -158,8 +173,61 @@ export class CompanionService {
   async initialize(): Promise<void> {
     await this.preferences.load();
     await this.registry.load(); this.setup = await this.journal.load();
+    await this.healthState.load();
+    await this.healthCommands.load();
+    await this.healthState.ensureInstallationId(this.registry.snapshot.installationId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || undefined);
     if (this.setup && !this.setup.complete) for (const step of this.setup.steps) if (step.status === 'working') step.status = 'error';
     this.restoreJob = this.account.restore().then(() => this.restoreSync()).catch((error: unknown) => { console.error('Saved account could not be restored', error instanceof Error ? error.name : 'unknown'); if (this.account.identity) this.sync.state = { ...this.sync.state, phase: 'error', message: 'Sync could not reconnect. Check your connection and try again.' }; else this.accountError = 'Your account could not be reconnected. Check your connection or sign in again.'; });
+  }
+  private async runLocalHealthChecks(): Promise<void> {
+    if (this.healthRunning) return;
+    this.healthRunning = true;
+    this.health = companionHealthFromResults(this.health.checks.map((check) => ({
+      check: check.id,
+      status: 'skip',
+    })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false });
+    try {
+      let runtimeAvailable = true;
+      try { await access(require.resolve('@indigoai-us/hq-cloud/package.json')); }
+      catch { runtimeAvailable = false; }
+      const results = await runHealthProbes({
+        signedIn: !!this.account.identity,
+        runnerAvailable: runtimeAvailable,
+        cliAvailable: false,
+        coreAvailable: runtimeAvailable,
+        updaterSupported: false,
+        updaterState: 'unsupported',
+        syncPhase: this.account.identity ? this.sync.state.phase : 'not-connected',
+        conflictCount: this.sync.state.conflicts,
+        storageWritable: true,
+        permissionsProbeDirectory: app.getPath('temp'),
+      });
+      const checkedAt = new Date().toISOString();
+      await this.healthState.markProbed(checkedAt);
+      this.health = companionHealthFromResults(results, { lastCheckedAt: checkedAt, reportingEnabled: false });
+      // Build a heartbeat for local validation only — transport stays disabled.
+      void this.healthReporter.report({
+        versions: { syncRunner: runtimeAvailable ? '6.16.35' : undefined },
+        syncState: this.sync.state.phase === 'conflict' ? 'conflict_blocked'
+          : this.sync.state.phase === 'paused' ? 'paused'
+            : this.sync.state.phase === 'syncing' ? 'syncing'
+              : this.sync.state.phase === 'error' ? 'error'
+                : this.sync.state.phase === 'idle' || this.sync.state.phase === 'offline' ? 'idle'
+                  : 'never_synced',
+        lastSyncSuccessAt: this.sync.state.lastSuccess ?? undefined,
+        consecutiveFailures: this.sync.state.phase === 'error' ? 1 : 0,
+        conflictCount: this.sync.state.conflicts,
+        updaterState: 'unsupported',
+      });
+    } catch (error) {
+      console.error('Local health checks failed:', error instanceof Error ? error.message : 'unknown');
+      this.health = companionHealthFromResults(this.health.checks.map((check) => ({
+        check: check.id,
+        status: 'skip',
+      })), { retry: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false });
+    } finally {
+      this.healthRunning = false;
+    }
   }
   async snapshot(): Promise<CompanionSnapshot> {
     const state = this.registry.snapshot;
@@ -178,6 +246,9 @@ export class CompanionService {
       runtime: { version: '6.16.35', available: runtimeAvailable, node: process.versions.node },
       credentials: { available: credentialsAvailable, backend },
       preferences: { ...this.preferences.state },
+      health: structuredClone(this.healthRunning
+        ? companionHealthFromResults(this.health.checks.map((check) => ({ check: check.id, status: 'skip' })), { checking: true, lastCheckedAt: this.health.lastCheckedAt, reportingEnabled: false })
+        : this.health),
       diagnostics: [
         { name: 'Workspace registry', state: 'ok', detail: `${state.workspaces.length} registered workspace${state.workspaces.length === 1 ? '' : 's'}` },
         { name: 'Bundled runtime', state: runtimeAvailable ? 'ok' : 'attention', detail: `HQ Cloud 6.16.35 · Node ${process.versions.node}` },
@@ -185,7 +256,7 @@ export class CompanionService {
         { name: 'Account', state: this.account.identity ? 'ok' : 'attention', detail: this.account.identity ? 'Account verified.' : 'Not signed in.' },
         { name: 'Sync', state: this.sync.running ? 'ok' : 'attention', detail: this.sync.state.message },
         { name: 'Updates', state: 'unavailable', detail: 'Local test build. Automatic updates and release signing are not configured.' },
-        { name: 'Client health', state: 'unavailable', detail: 'Local checks only. Server attribution and support commands are not enabled.' },
+        { name: 'Client health', state: this.health.overall === 'healthy' ? 'ok' : this.health.overall === 'degraded' || this.health.overall === 'retry' ? 'attention' : 'unavailable', detail: this.health.reportingEnabled ? 'Reporting enabled.' : 'Local checks only. Server attribution and support commands are not enabled.' },
       ],
     };
   }
@@ -250,7 +321,7 @@ export class CompanionService {
           if (!result.canceled && result.filePath) await writeFile(result.filePath, report, { mode: 0o600 });
           break;
         }
-        case 'diagnostics': break;
+        case 'diagnostics': await this.runLocalHealthChecks(); break;
         case 'set-preference': {
           if (request.preference === 'closeToTray' && request.enabled && !this.trayAvailable) throw new Error('This desktop does not support keeping HQ in the tray. Keep the window open to continue syncing.');
           if (request.preference === 'launchAtLogin') {
@@ -274,6 +345,6 @@ export class CompanionService {
   async diagnosticsReport(): Promise<string> {
     const state = await this.snapshot();
     // Explicit allowlist; paths, installation ID, account identity, env, and raw errors stay local.
-    return JSON.stringify({ generatedAt: new Date().toISOString(), app: 'hq-desktop-os', version: state.version, platform: state.platform, workspaceCount: state.workspaces.length, runtime: state.runtime, checks: state.diagnostics }, null, 2);
+    return JSON.stringify({ generatedAt: new Date().toISOString(), app: 'hq-desktop-os', version: state.version, platform: state.platform, workspaceCount: state.workspaces.length, runtime: state.runtime, checks: state.diagnostics, health: state.health }, null, 2);
   }
 }

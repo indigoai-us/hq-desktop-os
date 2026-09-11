@@ -1,9 +1,15 @@
 import type { CompanionClient } from '../companion-client';
 import type { CompanionSnapshot } from '../../shared/companion';
+import { HEALTH_PREVIEW_FIXTURES } from '../../shared/health-fixtures';
 /** Development only: no host access, network, or persistence. */
 export function createPreviewClient(): CompanionClient {
   const scenario = new URLSearchParams(window.location.search).get('scenario');
   const workspace = { id: 'preview-workspace', name: 'My HQ', root: '/home/example/HQ', environment: 'linux' as const, addedAt: '2026-09-11T00:00:00Z' };
+  const healthScenario = scenario === 'health-healthy' ? 'healthy'
+    : scenario === 'health-degraded' ? 'degraded'
+      : scenario === 'health-stale' ? 'stale'
+        : scenario === 'health-checking' ? 'checking'
+          : 'unavailable';
   const state: CompanionSnapshot = {
     version: 'preview', platform: 'linux', installationId: 'preview-only',
     workspaces: [], activeWorkspaceId: null,
@@ -12,6 +18,7 @@ export function createPreviewClient(): CompanionClient {
     runtime: { version: '6.16.35', available: true, node: '24' },
     credentials: { available: true, backend: 'preview' },
     preferences: { closeToTray: false, launchAtLogin: false }, diagnostics: [],
+    health: structuredClone(HEALTH_PREVIEW_FIXTURES[healthScenario]),
   };
   const attach = () => { if (!state.workspaces.length) state.workspaces.push(workspace); state.activeWorkspaceId = workspace.id; };
   let setupStarted: number | undefined;
@@ -64,6 +71,11 @@ export function createPreviewClient(): CompanionClient {
       } else {
         state.sync = { phase: 'idle', message: 'Your files are up to date', lastSuccess: new Date().toISOString(), conflicts: 0, conflictPaths: [] };
       }
+    }
+    if (request.action === 'diagnostics') {
+      state.health = structuredClone(HEALTH_PREVIEW_FIXTURES.checking);
+      // Preview only: flip to healthy on the next snapshot tick.
+      setTimeout(() => { state.health = structuredClone(HEALTH_PREVIEW_FIXTURES.healthy); }, 400);
     }
     return structuredClone(state);
   } };
