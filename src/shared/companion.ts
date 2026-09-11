@@ -1,13 +1,9 @@
 import type { CompanionHealth } from './health.js';
+import type { Workspace } from './workspace.js';
+
+export type { Workspace, WorkspaceEnvironment } from './workspace.js';
 
 /** Serializable desktop state. Credentials and arbitrary host commands never cross IPC. */
-export interface Workspace {
-  id: string;
-  name: string;
-  root: string;
-  environment: 'linux' | 'windows';
-  addedAt: string;
-}
 export type SyncPhase = 'not-connected' | 'idle' | 'syncing' | 'paused' | 'offline' | 'conflict' | 'error';
 /** Engine `--on-conflict` strategies from hq-cloud sync-runner. */
 export const CONFLICT_CHOICES = ['keep', 'publish-local', 'overwrite', 'abort'] as const;

@@ -25,6 +25,7 @@ export function createPreviewClient(): CompanionClient {
         name: 'My HQ',
         root: '/home/example/HQ',
         environment: 'linux',
+        wslDistro: null,
         addedAt: '2026-09-11T00:00:00Z',
       });
     }

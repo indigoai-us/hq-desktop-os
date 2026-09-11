@@ -253,7 +253,8 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
 
     const main = read('src/renderer/main.tsx') + read('src/renderer/companion-app.tsx');
     expect(main).toContain('data-selected={section === name}');
-    expect(main).toContain('ThemeControl');
+    // Appearance control lives on Settings (not the shell chrome).
+    expect(read('src/renderer/screens/settings.tsx')).toContain('ThemeControl');
     // US-002 native frame: still no redundant window-control IPC wiring in the page.
     expect(main).not.toMatch(/platform\.windowMinimize|platform\.windowMaximize|platform\.windowClose/);
     expect(main).not.toMatch(/data-testid=["']window-(minimize|maximize|close)["']/);

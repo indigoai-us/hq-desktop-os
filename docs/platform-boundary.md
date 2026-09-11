@@ -100,5 +100,10 @@ None of the following is claimed as passing anywhere in this repo.
 | Windows native behaviour | No evidence of any kind | A Windows run of `pnpm test:electron`, plus a Windows 11 desktop run for release. Hosted Windows Server in CI would not by itself establish Windows 11 desktop behaviour. |
 | Windows external-link handoff | No fixture exists | A Windows equivalent of `tests/electron/us-002-external-handoff.spec.ts`. The Linux spec is selected by platform in `playwright.electron.config.ts`, so no Windows skip is reported as a pass. |
 | Native Wayland windowing | Unproven | Everything measured so far is the X11/XWayland path. |
+| Live WSL2 discovery / dual-ownership on Windows | Contract + parser tests only | Run `discoverWslDistributions` against real `wsl.exe` on Windows 11 with absent, stopped, WSL1, and WSL2 distros; prove alias conflict UX without a second watcher (US-014 owns runtime). |
+
+## Workspace registry (US-009 Linux slice)
+
+Linux attaches persist `root`, `environment`, `wslDistro` (null on native), and stable `installationId` atomically under `userData/workspaces.json` (`src/main/workspaces.ts`). Canonical aliases resolve through `realpath`; dual ownership of one physical root across environments is rejected. WSL listing lives in `src/main/platform/wsl-discovery.ts` and stays fail-closed on non-Windows hosts with an actionable unavailable state — it does not invent a Linux WSL runtime.
 
 CI is deferred by decision: no workflow file is committed on this branch yet, and no CI run has verified this work. The authored Windows/Linux native-acceptance workflow is preserved outside the repo and is restored in the final CI phase; until then every result above came from local runs on one Linux host.

@@ -40,6 +40,7 @@ const PREVIEW_WORKSPACE = {
   name: 'My HQ',
   root: '/home/example/HQ',
   environment: 'linux' as const,
+  wslDistro: null,
   addedAt: '2026-09-11T00:00:00Z',
 };
 
