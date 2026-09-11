@@ -4,3 +4,5 @@ dist/
 playwright-report/
 test-results/
 *.tsbuildinfo
+dist-runtime/
+.scratch/

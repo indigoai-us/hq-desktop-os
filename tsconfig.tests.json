@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ],
+    "jsx": "react-jsx",
+    "noEmit": true
+  },
+  "include": [
+    "tests/**/*.ts",
+    "__tests__/**/*.ts",
+    "playwright.config.ts",
+    "playwright.electron.config.ts",
+    "playwright.host-acceptance.config.ts",
+    "vite.config.ts",
+    "vite.preload.config.ts",
+    "vitest.config.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ]
+}
