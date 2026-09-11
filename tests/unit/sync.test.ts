@@ -10,12 +10,20 @@ describe('truthful sync status', () => {
   const complete = { type: 'all-complete', companiesAttempted: 1, errors: [], conflictPaths: [], transient: [], partial: false };
   it('requires a complete protocol summary before recording success', () => {
     for (const event of [{ type: 'exit', code: 0 }, { type: 'all-complete' }, { ...complete, companiesAttempted: 0 }, { ...complete, errors: ['failed'] }, { ...complete, partial: true }, { ...complete, transient: ['retry'] }, { ...complete, conflictPaths: ['file'] }]) expect(reduceSync(pausedSync(), event).lastSuccess).toBeNull();
-    expect(reduceSync(pausedSync(), complete)).toMatchObject({ phase: 'idle', lastSuccess: expect.any(String) });
+    expect(reduceSync(pausedSync(), complete)).toMatchObject({ phase: 'idle', lastSuccess: expect.any(String), conflictPaths: [] });
   });
   it('preserves the previous successful time when a later pass fails', () => {
     const synced = reduceSync(pausedSync(), complete);
     expect(reduceSync(synced, { type: 'auth-error' })).toMatchObject({ phase: 'not-connected', lastSuccess: synced.lastSuccess });
     expect(reduceSync(synced, { ...complete, partial: true })).toMatchObject({ phase: 'error', lastSuccess: synced.lastSuccess });
+  });
+  it('tracks relative conflict paths from conflict events and all-complete', () => {
+    const first = reduceSync(pausedSync(), { type: 'conflict', path: 'notes/shared-draft.md' });
+    expect(first).toMatchObject({ phase: 'conflict', conflicts: 1, conflictPaths: ['notes/shared-draft.md'], message: 'One file needs your attention' });
+    const second = reduceSync(first, { type: 'conflict', path: 'plans/roadmap.md' });
+    expect(second).toMatchObject({ conflicts: 2, conflictPaths: ['notes/shared-draft.md', 'plans/roadmap.md'] });
+    const summarized = reduceSync(pausedSync(), { ...complete, conflictPaths: ['notes/shared-draft.md', '/etc/passwd', '../escape', 'plans/roadmap.md'] });
+    expect(summarized).toMatchObject({ phase: 'conflict', conflicts: 2, conflictPaths: ['notes/shared-draft.md', 'plans/roadmap.md'] });
   });
   it('reassembles fragmented lines and recovers after oversized diagnostic output', () => {
     const events: Record<string, unknown>[] = []; const lines = new RunnerLines(event => events.push(event));
@@ -34,6 +42,20 @@ describe('account-scoped work selection', () => {
     for (const scopeId of ['/home/user', '--companies', 'cmp_A;echo', 'cmp_A/../B']) expect(parseCompanionAction({ action: 'select-sync-scope', scopeId })).toBeNull();
     expect(parseCompanionAction({ action: 'select-sync-scope', scopeId: 'personal' })).toEqual({ action: 'select-sync-scope', scopeId: 'personal' });
     expect(parseCompanionAction({ action: 'sign-in', scopeId: 'personal' })).toBeNull();
+  });
+  it('accepts only engine conflict choices and relative paths for resolve-conflicts', () => {
+    expect(parseCompanionAction({ action: 'resolve-conflicts', choice: 'keep' })).toEqual({ action: 'resolve-conflicts', choice: 'keep' });
+    expect(parseCompanionAction({ action: 'resolve-conflicts', choice: 'publish-local', paths: ['notes/a.md'] })).toEqual({ action: 'resolve-conflicts', choice: 'publish-local', paths: ['notes/a.md'] });
+    expect(parseCompanionAction({ action: 'resolve-conflicts', choice: 'overwrite' })).toEqual({ action: 'resolve-conflicts', choice: 'overwrite' });
+    expect(parseCompanionAction({ action: 'resolve-conflicts', choice: 'abort' })).toEqual({ action: 'resolve-conflicts', choice: 'abort' });
+    for (const input of [
+      { action: 'resolve-conflicts' },
+      { action: 'resolve-conflicts', choice: 'nuke' },
+      { action: 'resolve-conflicts', choice: 'keep', paths: ['/etc/passwd'] },
+      { action: 'resolve-conflicts', choice: 'keep', paths: ['../escape'] },
+      { action: 'resolve-conflicts', choice: 'keep', paths: [] },
+      { action: 'pause-sync', choice: 'keep' },
+    ]) expect(parseCompanionAction(input)).toBeNull();
   });
   it('remembers folder ownership across app restarts and rejects another account', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hq-account-owner-'));

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, FileDown, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
-import { activeWorkspace, type CompanionAction, type CompanionSnapshot } from '../shared/companion';
+import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
+import { activeWorkspace, type CompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion';
+import { HEALTH_PREVIEW_FIXTURES } from '../shared/health-fixtures';
 import { createCompanionClient, type CompanionClient } from './companion-client';
-import { ThemeControl } from './theme';
 import { HqMark } from './components/hq-mark';
+import { ConflictList } from './components/conflict-list';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
+import { SettingsScreen } from './screens/settings';
 
 const sections = [{ name: 'Workspace', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
 type Section = typeof sections[number]['name'];
@@ -98,8 +100,15 @@ export function CompanionApp() {
           {workspace && connected && <div className="sync-choice">
             {state?.syncScopes?.length ? <><label htmlFor="sync-workspace">Keep these files on this computer</label><select id="sync-workspace" className="hq-select" value={state.selectedSyncScope ?? ''} disabled={!enabled} onChange={event => void run({ action: 'select-sync-scope', scopeId: event.target.value }, 'Choosing your shared work')}><option value="" disabled>Choose your work</option>{state.syncScopes.map(scope => <option key={scope.id} value={scope.id}>{scope.label}</option>)}</select></> : <Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'load-sync-scopes' }, 'Finding your shared work')}>Choose your work</Button>}
           </div>}
-          <div className="welcome-actions">{!workspace ? <Button onClick={() => setSection('Workspace')}>Go to workspace<ArrowRight size={16}/></Button> : !connected || state?.sync.phase === 'not-connected' ? <Button disabled={!enabled} onClick={() => void run({ action: 'sign-in' }, 'Opening sign-in')}>Sign in<ArrowUpRight size={15}/></Button> : <Button disabled={!enabled || !state?.selectedSyncScope} onClick={() => void run({ action: ['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'pause-sync' : 'resume-sync' }, 'Updating sync')}>{['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'Pause sync' : state?.sync.phase === 'paused' ? 'Start syncing' : 'Try sync again'}</Button>}</div>
-          <dl className="sync-details"><div><dt>Workspace</dt><dd>{workspace?.name ?? 'Not selected'}</dd></div><div><dt>Last synced</dt><dd>{state?.sync.lastSuccess ? new Date(state.sync.lastSuccess).toLocaleString() : 'Not yet'}</dd></div></dl>
+          {workspace && connected && (state?.sync.phase === 'conflict' || (state?.sync.conflicts ?? 0) > 0) && (
+            <ConflictList
+              paths={state?.sync.conflictPaths ?? []}
+              disabled={!enabled}
+              onResolve={(choice: ConflictChoice) => void run({ action: 'resolve-conflicts', choice }, choice === 'abort' ? 'Pausing sync' : 'Applying your choice')}
+            />
+          )}
+          <div className="welcome-actions">{!workspace ? <Button onClick={() => setSection('Workspace')}>Go to workspace<ArrowRight size={16}/></Button> : !connected || state?.sync.phase === 'not-connected' ? <Button disabled={!enabled} onClick={() => void run({ action: 'sign-in' }, 'Opening sign-in')}>Sign in<ArrowUpRight size={15}/></Button> : state?.sync.phase === 'conflict' ? null : <Button disabled={!enabled || !state?.selectedSyncScope} onClick={() => void run({ action: ['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'pause-sync' : 'resume-sync' }, 'Updating sync')}>{['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'Pause sync' : state?.sync.phase === 'paused' ? 'Start syncing' : 'Try sync again'}</Button>}</div>
+          <dl className="sync-details"><div><dt>Workspace</dt><dd>{workspace?.name ?? 'Not selected'}</dd></div><div><dt>Last synced</dt><dd>{state?.sync.lastSuccess ? new Date(state.sync.lastSuccess).toLocaleString() : 'Not yet'}</dd></div>{(state?.sync.conflicts ?? 0) > 0 && <div><dt>Needs a choice</dt><dd>{state!.sync.conflicts === 1 ? '1 file' : `${state!.sync.conflicts} files`}</dd></div>}</dl>
         </section>
       </>}
       {section === 'Tools' && <>
@@ -107,16 +116,15 @@ export function CompanionApp() {
         {!workspace && <p className="notice">Choose your workspace first to use these shortcuts.</p>}
         <section>{[{ title: 'Files', description: 'Browse and organize your work.', action: 'open-folder' as const, icon: FolderOpen }, { title: 'Terminal', description: 'For when you want to work with commands.', action: 'open-terminal' as const, icon: Terminal }].map(({ title, description, action, icon: Icon }) => <div className="tool-row" key={title}><Icon size={22}/><div><h2>{title}</h2><p>{description}</p></div><Button variant="ghost" disabled={!enabled || !workspace} onClick={() => void run({ action, workspaceId: workspace!.id }, `Opening ${title.toLowerCase()}`)}>Open {title.toLowerCase()}<ArrowUpRight size={15}/></Button></div>)}</section>
       </>}
-      {section === 'Settings' && <>
-        <header className="page-heading"><h1>Settings</h1><p className="lead">Make HQ feel at home.</p></header>
-        <section className="content-section"><ThemeControl /></section>
-        <section className="setting-row"><div><h2>Your account</h2><p>{connected ? state?.account.label : 'You’re not signed in on this computer.'}</p></div><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: connected ? 'sign-out' : 'sign-in' }, connected ? 'Signing out' : 'Opening sign-in')}>{connected ? 'Sign out' : 'Sign in'}</Button></section>
-        <section className="setting-row"><div><h2>Keep HQ running</h2><p>Continue syncing after you close this window.</p></div><input type="checkbox" aria-label="Keep HQ running" checked={state?.preferences.closeToTray ?? false} disabled={!enabled} onChange={event => void run({ action: 'set-preference', preference: 'closeToTray', enabled: event.target.checked }, 'Saving your preference')}/></section>
-        <section className="setting-row"><div><h2>Open HQ when I sign in</h2><p>Start HQ when you sign in to this computer.</p></div><input type="checkbox" aria-label="Open HQ when I sign in" checked={state?.preferences.launchAtLogin ?? false} disabled={!enabled} onChange={event => void run({ action: 'set-preference', preference: 'launchAtLogin', enabled: event.target.checked }, 'Saving your preference')}/></section>
-        <section className="setting-row"><div><h2>Need a hand?</h2><p>Save a private report to share when asking for help.</p></div><Button variant="ghost" disabled={!enabled} onClick={() => void run({ action: 'export-diagnostics' }, 'Saving your support report')}><FileDown size={16}/>Save support report</Button></section>
-        <details className="support-details"><summary>What’s included in the report?</summary><p>The report lists the app version and checks that help find a problem. It does not include your files, folder locations, account details, or passwords. Nothing is sent automatically.</p></details>
-        <p className="about">HQ · {state?.version ?? 'Desktop'}</p>
-      </>}
+      {section === 'Settings' && state && (
+        <SettingsScreen
+          state={state}
+          health={state.health ?? HEALTH_PREVIEW_FIXTURES.unavailable}
+          enabled={enabled}
+          connected={connected}
+          run={run}
+        />
+      )}
       <Dialog open={!!removeId} onOpenChange={(open) => { if (!open) setRemoveId(undefined); }}><DialogContent><DialogTitle>Remove this workspace?</DialogTitle><DialogDescription>Your folder and its files will stay on this computer. You can add it again anytime.</DialogDescription><div className="dialog-actions"><Button variant="outline" onClick={() => setRemoveId(undefined)}>Keep workspace</Button><Button onClick={() => { const id = removeId!; setRemoveId(undefined); void run({ action: 'remove-workspace', workspaceId: id }, 'Removing workspace'); }}>Remove from app</Button></div></DialogContent></Dialog>
     </main>
   </div>;

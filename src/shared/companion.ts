@@ -1,3 +1,5 @@
+import type { CompanionHealth } from './health.js';
+
 /** Serializable desktop state. Credentials and arbitrary host commands never cross IPC. */
 export interface Workspace {
   id: string;
@@ -7,6 +9,9 @@ export interface Workspace {
   addedAt: string;
 }
 export type SyncPhase = 'not-connected' | 'idle' | 'syncing' | 'paused' | 'offline' | 'conflict' | 'error';
+/** Engine `--on-conflict` strategies from hq-cloud sync-runner. */
+export const CONFLICT_CHOICES = ['keep', 'publish-local', 'overwrite', 'abort'] as const;
+export type ConflictChoice = typeof CONFLICT_CHOICES[number];
 export interface CompanionSnapshot {
   setup?: { root: string; steps: { id: string; label: string; status: 'waiting' | 'working' | 'ready' | 'error' }[]; error: string | null; complete: boolean };
   syncScopes?: { id: string; label: string }[];
@@ -17,19 +22,35 @@ export interface CompanionSnapshot {
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
   account: { status: 'signed-out' | 'connected' | 'signing-in'; label: string | null; error?: string };
-  sync: { phase: SyncPhase; lastSuccess: string | null; message: string; conflicts: number };
+  sync: { phase: SyncPhase; lastSuccess: string | null; message: string; conflicts: number; conflictPaths: string[] };
   runtime: { version: string; available: boolean; node: string };
   credentials: { available: boolean; backend: string };
   preferences: { closeToTray: boolean; launchAtLogin: boolean };
   diagnostics: { name: string; state: 'ok' | 'attention' | 'unavailable'; detail: string }[];
+  health: CompanionHealth;
 }
-export const COMPANION_ACTIONS = ['snapshot', 'create-workspace', 'resume-setup', 'cancel-setup', 'reset-setup', 'sign-in', 'cancel-sign-in', 'pause-sync', 'resume-sync', 'load-sync-scopes', 'select-sync-scope', 'attach-workspace', 'select-workspace', 'remove-workspace', 'open-folder', 'open-terminal', 'export-diagnostics', 'diagnostics', 'set-preference', 'sign-out'] as const;
+export const COMPANION_ACTIONS = ['snapshot', 'create-workspace', 'resume-setup', 'cancel-setup', 'reset-setup', 'sign-in', 'cancel-sign-in', 'pause-sync', 'resume-sync', 'resolve-conflicts', 'load-sync-scopes', 'select-sync-scope', 'attach-workspace', 'select-workspace', 'remove-workspace', 'open-folder', 'open-terminal', 'export-diagnostics', 'diagnostics', 'set-preference', 'sign-out'] as const;
 export type CompanionActionName = typeof COMPANION_ACTIONS[number];
-export interface CompanionAction { action: CompanionActionName; workspaceId?: string; scopeId?: string; preference?: 'closeToTray' | 'launchAtLogin'; enabled?: boolean }
+export interface CompanionAction {
+  action: CompanionActionName;
+  workspaceId?: string;
+  scopeId?: string;
+  preference?: 'closeToTray' | 'launchAtLogin';
+  enabled?: boolean;
+  choice?: ConflictChoice;
+  /** Relative conflict paths to resolve; omit to apply the choice to every listed conflict. */
+  paths?: string[];
+}
+/** Relative vault keys only — never absolute host paths across IPC. */
+export function isRelativeConflictPath(path: string): boolean {
+  if (!path || path.length > 512 || path.includes('\0') || path.includes('..')) return false;
+  if (path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(path)) return false;
+  return true;
+}
 export function parseCompanionAction(raw: unknown): CompanionAction | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  if (Object.keys(record).some((key) => key !== 'action' && key !== 'workspaceId' && key !== 'scopeId' && key !== 'preference' && key !== 'enabled')) return null;
+  if (Object.keys(record).some((key) => !['action', 'workspaceId', 'scopeId', 'preference', 'enabled', 'choice', 'paths'].includes(key))) return null;
   if (!COMPANION_ACTIONS.includes(record.action as CompanionActionName)) return null;
   const needsId = ['select-workspace', 'remove-workspace', 'open-folder', 'open-terminal'].includes(String(record.action));
   if (needsId && (typeof record.workspaceId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(record.workspaceId))) return null;
@@ -38,6 +59,13 @@ export function parseCompanionAction(raw: unknown): CompanionAction | null {
   else if (record.scopeId !== undefined) return null;
   if (record.action === 'set-preference') { if (!['closeToTray', 'launchAtLogin'].includes(String(record.preference)) || typeof record.enabled !== 'boolean') return null; }
   else if (record.preference !== undefined || record.enabled !== undefined) return null;
+  if (record.action === 'resolve-conflicts') {
+    if (!CONFLICT_CHOICES.includes(record.choice as ConflictChoice)) return null;
+    if (record.paths !== undefined) {
+      if (!Array.isArray(record.paths) || !record.paths.length || record.paths.length > 500) return null;
+      if (record.paths.some((path) => typeof path !== 'string' || !isRelativeConflictPath(path))) return null;
+    }
+  } else if (record.choice !== undefined || record.paths !== undefined) return null;
   return record as unknown as CompanionAction;
 }
 export function activeWorkspace(state: CompanionSnapshot): Workspace | undefined {
