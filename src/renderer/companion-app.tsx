@@ -64,7 +64,22 @@ export function CompanionApp() {
       <div className="sidebar-footer"><Laptop size={15}/>This computer<span>{workspace?.name ?? 'Let’s get you set up'}</span></div>
     </aside>
     <main className="companion-main" data-focus-shell tabIndex={-1} aria-busy={!!pending}>
-      {client?.simulated && <p role="status" className="notice">Preview · Changes here are not saved.</p>}
+      {/* DEV-only: Vite DCE drops this fixture chrome from production bundles. */}
+      {import.meta.env.DEV && client?.simulated && (
+        <div role="status" className="notice" data-testid="preview-simulated-banner">
+          Preview · Changes here are not saved.{' '}
+          <Button
+            variant="ghost"
+            data-testid="preview-reset"
+            onClick={() => {
+              // Drop scenario selection and reload so fixtures restart from signed-out.
+              window.location.assign('/dev/companion');
+            }}
+          >
+            Reset preview
+          </Button>
+        </div>
+      )}
       {error && <div role="alert" className="notice error">{error}<Button variant="ghost" onClick={() => void run({ action: 'snapshot' }, 'Trying again')}>Try again</Button></div>}
       {state?.account.error && <p role="alert" className="notice error">{state.account.error}</p>}
       {signingIn && <div role="status" className="notice">Finish signing in through your browser.<Button variant="ghost" disabled={!!pending} onClick={() => void run({ action: 'cancel-sign-in' }, 'Canceling sign-in')}>Cancel sign-in</Button></div>}

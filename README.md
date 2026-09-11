@@ -13,7 +13,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-The renderer runs at `http://127.0.0.1:4173` with hot reload. The command fails if that port is occupied. In another terminal, run `pnpm dev:desktop` to compile the main and preload targets and open Electron against the running renderer. Restart this command after main or preload edits. A graphical desktop and Electron's OS libraries are required. Keep Electron's sandbox enabled.
+The renderer runs at `http://127.0.0.1:4173` with hot reload. The command fails if that port is occupied. Process ownership and the session log are recorded under `.scratch/` (see [development preview](docs/development.md)). In another terminal, run `pnpm dev:desktop` to compile the main and preload targets and open Electron against the running renderer. Restart this command after main or preload edits. A graphical desktop and Electron's OS libraries are required. Keep Electron's sandbox enabled.
 
 ## Commands
 
