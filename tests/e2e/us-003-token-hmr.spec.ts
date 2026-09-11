@@ -1,8 +1,8 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createServer, type UserConfig, type ViteDevServer } from 'vite';
-import baseConfig from '../../vite.config';
+import type { ViteDevServer } from 'vite';
+import { startFixtureServer } from '../helpers/renderer-dev-server';
 
 /**
  * Token hot-module replacement, proven on an isolated copy of the renderer.
@@ -20,6 +20,14 @@ const NEW_TOKENS = {
   selection: 'rgb(0, 128, 64)',
   border: 'rgb(128, 0, 64)',
   foreground: 'rgb(0, 64, 128)',
+  // Spacing and typography are token-backed too, so an edit must move layout
+  // and text size, not only colour.
+  space1: '3px',
+  space2: '7px',
+  space3: '11px',
+  space6: '23px',
+  textCanvas: '17px',
+  textTitle: '29px',
 };
 
 test.describe.configure({ mode: 'serial' });
@@ -37,14 +45,12 @@ test.describe('US-003 development token HMR', () => {
     const root = join(fixture, 'src', 'renderer');
     tokensPath = join(root, 'tokens.css');
 
-    server = await createServer({
-      ...(baseConfig as UserConfig),
-      configFile: false,
+    server = await startFixtureServer({
+      repoRoot: process.cwd(),
       root,
-      resolve: { alias: { '@': root } },
-      server: { host: HOST, port: PORT, strictPort: true },
+      host: HOST,
+      port: PORT,
     });
-    await server.listen();
   });
 
   test.afterAll(async () => {
@@ -56,17 +62,27 @@ test.describe('US-003 development token HMR', () => {
   });
 
   async function controlStyles(page: Page) {
-    return page.evaluate(() => ({
-      selectedBackground: getComputedStyle(
-        document.querySelector('[data-testid="selected-sample"]')!,
-      ).backgroundColor,
-      buttonBorder: getComputedStyle(document.querySelector('[data-testid="check-native"]')!)
-        .borderTopColor,
-      themeOptionBorder: getComputedStyle(
-        document.querySelector('[data-testid="theme-option-light"]')!,
-      ).borderTopColor,
-      bodyColor: getComputedStyle(document.body).color,
-    }));
+    return page.evaluate(() => {
+      const style = (selector: string) =>
+        getComputedStyle(document.querySelector(selector)!);
+      const selected = style('[data-testid="selected-sample"]');
+      const themeOption = style('[data-testid="theme-option-light"]');
+      return {
+        selectedBackground: selected.backgroundColor,
+        buttonBorder: style('[data-testid="check-native"]').borderTopColor,
+        themeOptionBorder: themeOption.borderTopColor,
+        bodyColor: getComputedStyle(document.body).color,
+        // Spacing: the actions row gap, a control's padding, the page padding
+        // and the utility-driven radiogroup gap.
+        actionsGap: style('.hq-actions').gap,
+        buttonPadding: style('[data-testid="check-native"]').paddingTop,
+        pagePadding: style('.hq-page').paddingTop,
+        radiogroupGap: style('[role="radiogroup"]').gap,
+        // Typography.
+        bodyFontSize: getComputedStyle(document.body).fontSize,
+        titleFontSize: style('h1').fontSize,
+      };
+    });
   }
 
   test('updates every token-backed control without reloading the page', async ({ page }) => {
@@ -76,9 +92,21 @@ test.describe('US-003 development token HMR', () => {
     await page.getByTestId('theme-option-light').click();
 
     const before = await controlStyles(page);
-    expect(before.selectedBackground).not.toBe(NEW_TOKENS.selection);
-    expect(before.buttonBorder).not.toBe(NEW_TOKENS.border);
-    expect(before.bodyColor).not.toBe(NEW_TOKENS.foreground);
+    const after = {
+      selectedBackground: NEW_TOKENS.selection,
+      buttonBorder: NEW_TOKENS.border,
+      themeOptionBorder: NEW_TOKENS.border,
+      bodyColor: NEW_TOKENS.foreground,
+      actionsGap: NEW_TOKENS.space2,
+      buttonPadding: NEW_TOKENS.space2,
+      pagePadding: NEW_TOKENS.space6,
+      radiogroupGap: NEW_TOKENS.space1,
+      bodyFontSize: NEW_TOKENS.textCanvas,
+      titleFontSize: NEW_TOKENS.textTitle,
+    };
+    for (const [property, updated] of Object.entries(after)) {
+      expect(before[property as keyof typeof after], property).not.toBe(updated);
+    }
 
     // Survives HMR, not a reload: a full navigation would clear these.
     await page.evaluate(() => {
@@ -90,18 +118,17 @@ test.describe('US-003 development token HMR', () => {
     const edited = original
       .replaceAll('#dcd8e2', NEW_TOKENS.selection)
       .replaceAll('#d4d0d9', NEW_TOKENS.border)
-      .replaceAll('#1a181e', NEW_TOKENS.foreground);
+      .replaceAll('#1a181e', NEW_TOKENS.foreground)
+      .replace(/--space-1:[^;]+;/, `--space-1: ${NEW_TOKENS.space1};`)
+      .replace(/--space-2:[^;]+;/, `--space-2: ${NEW_TOKENS.space2};`)
+      .replace(/--space-3:[^;]+;/, `--space-3: ${NEW_TOKENS.space3};`)
+      .replace(/--space-6:[^;]+;/, `--space-6: ${NEW_TOKENS.space6};`)
+      .replace(/--text-canvas:[^;]+;/, `--text-canvas: ${NEW_TOKENS.textCanvas};`)
+      .replace(/--text-title:[^;]+;/, `--text-title: ${NEW_TOKENS.textTitle};`);
     expect(edited).not.toBe(original);
     writeFileSync(tokensPath, edited, 'utf8');
 
-    await expect
-      .poll(async () => controlStyles(page), { timeout: 20_000 })
-      .toEqual({
-        selectedBackground: NEW_TOKENS.selection,
-        buttonBorder: NEW_TOKENS.border,
-        themeOptionBorder: NEW_TOKENS.border,
-        bodyColor: NEW_TOKENS.foreground,
-      });
+    await expect.poll(async () => controlStyles(page), { timeout: 20_000 }).toEqual(after);
 
     expect(await page.evaluate(() => (globalThis as Record<string, unknown>).__hmrSentinel)).toBe(
       'alive',

@@ -4,6 +4,8 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import type { Plugin, UserConfig } from 'vite';
 import viteConfig from '../../vite.config';
+import { compileStylesheet, ruleBody } from '../../tests/helpers/tailwind';
+import { loadRendererConfig } from '../../tests/helpers/renderer-dev-server';
 import { PACKAGED_CSP, DEVELOPMENT_CSP } from '../../src/main/csp';
 import { parseCsp } from '../../tests/helpers/csp';
 import {
@@ -161,9 +163,64 @@ describe('US-003 Tailwind and HQ theme tokens', () => {
     expect(styles).toContain('var(--selection)');
     expect(styles).toContain(':focus-visible');
     expect(styles).toContain('var(--ring)');
-    expect(styles).toMatch(/--text-canvas:\s*0\.8125rem/);
-    expect(styles).toMatch(/--text-title:\s*1\.25rem/);
-    expect(styles).toMatch(/--radius(?:-[\w]+)?:\s*0/);
+
+    const declared = cssCustomProperties(read('src/renderer/tokens.css'));
+    expect(declared.has('--text-canvas')).toBe(true);
+    expect(declared.has('--text-title')).toBe(true);
+    expect(declared.has('--radius')).toBe(true);
+  });
+
+  it('compiles spacing and typography utilities from the semantic tokens', async () => {
+    const css = await compileStylesheet(join(root, 'src/renderer/styles.css'), [
+      'gap-1',
+      'gap-2',
+      'p-4',
+      'text-hq-canvas',
+      'text-hq-title',
+    ]);
+
+    // Utilities must resolve through the HQ tokens, not bake in a literal.
+    for (const selector of ['.gap-1', '.gap-2', '.p-4']) {
+      expect(ruleBody(css, selector), selector).toContain('var(--space-1)');
+      expect(ruleBody(css, selector), selector).not.toMatch(/\d(?:\.\d+)?rem/);
+    }
+    expect(ruleBody(css, '.text-hq-canvas')).toContain('var(--text-canvas)');
+    expect(ruleBody(css, '.text-hq-title')).toContain('var(--text-title)');
+    for (const selector of ['.text-hq-canvas', '.text-hq-title']) {
+      expect(ruleBody(css, selector), selector).not.toMatch(/font-size:\s*\d/);
+    }
+
+    // Components spend the same vocabulary, so a token change moves them too.
+    const components: Record<string, string[]> = {
+      '.hq-page': ['var(--space-6)'],
+      '.hq-actions': ['var(--space-2)', 'var(--space-5)'],
+      '.hq-button': ['var(--space-2)', 'var(--space-3)'],
+      '.hq-theme-control': ['var(--space-1)', 'var(--space-4)'],
+      '.hq-theme-option': ['var(--space-1)', 'var(--space-2)', 'var(--space-3)'],
+    };
+    for (const [selector, expected] of Object.entries(components)) {
+      const body = ruleBody(css, selector);
+      for (const token of expected) expect(body, selector).toContain(token);
+      // No hardcoded spacing survives beside the tokens.
+      expect(body.replace(/max-width:[^;]+;/, ''), selector).not.toMatch(
+        /(?:padding|margin|gap)[^;]*\d(?:\.\d+)?rem/,
+      );
+    }
+  });
+
+  it('loads the shipped Vite config through Vite own loader', async () => {
+    // The HMR fixture server loads the config this way instead of importing the
+    // TypeScript file, which leaves its module format to the test runner.
+    const loaded = await loadRendererConfig(root);
+    const names = (((loaded.plugins ?? []) as unknown[]).flatMap(function flatten(
+      value: unknown,
+    ): Plugin[] {
+      return Array.isArray(value) ? value.flatMap(flatten) : value ? [value as Plugin] : [];
+    }) as Plugin[]).map((entry) => entry.name);
+    expect(names).toContain('@tailwindcss/vite:scan');
+    expect(names).toContain('development-refresh-csp');
+    expect(names).toContain('production-csp');
+    expect(names.some((name) => name.startsWith('vite:react'))).toBe(true);
   });
 
   it('keeps the HQ styling contract in token-backed controls', () => {

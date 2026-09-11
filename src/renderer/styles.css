@@ -31,11 +31,19 @@
   --color-status-warning: var(--status-warning);
   --color-status-danger: var(--status-danger);
   --color-status-info: var(--status-info);
-  --spacing-canvas: 0.8125rem;
-  --text-canvas: 0.8125rem;
-  --text-canvas--line-height: 1.7;
-  --text-title: 1.25rem;
-  --text-title--line-height: 1.3;
+  /*
+   * Utilities read the same semantic tokens the components do, so changing a
+   * token moves both. Numeric spacing utilities step off the HQ base unit;
+   * the named `--space-*` steps stay the vocabulary components use directly.
+   * Typography utilities are prefixed because Tailwind emits its theme keys
+   * into `:root`, and a key named after its own token would self-reference.
+   */
+  --spacing: var(--space-1);
+  --spacing-canvas: var(--space-3);
+  --text-hq-canvas: var(--text-canvas);
+  --text-hq-canvas--line-height: 1.7;
+  --text-hq-title: var(--text-title);
+  --text-hq-title--line-height: 1.3;
 }
 
 @layer base {
@@ -53,7 +61,7 @@
     min-height: 100vh;
     font-family: var(--font-sans);
     font-size: var(--text-canvas);
-    line-height: var(--text-canvas--line-height);
+    line-height: 1.7;
     font-weight: 400;
     background: var(--background);
     color: var(--foreground);
@@ -85,20 +93,20 @@
   .hq-page {
     max-width: 44rem;
     margin: 12vh auto;
-    padding: 2rem;
+    padding: var(--space-6);
   }
 
   .hq-title {
-    margin: 0 0 0.75rem;
+    margin: 0 0 var(--space-3);
     font-size: var(--text-title);
-    line-height: var(--text-title--line-height);
+    line-height: 1.3;
     font-weight: 500;
   }
 
   .hq-body {
     margin: 0;
     font-size: var(--text-canvas);
-    line-height: var(--text-canvas--line-height);
+    line-height: 1.7;
     font-weight: 400;
     color: var(--foreground);
   }
@@ -106,8 +114,8 @@
   .hq-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    margin: 1.5rem 0;
+    gap: var(--space-2);
+    margin: var(--space-5) 0;
   }
 
   .hq-button {
@@ -116,7 +124,7 @@
     background: transparent;
     color: var(--foreground);
     border-radius: 0;
-    padding: 0.45rem 0.75rem;
+    padding: var(--space-2) var(--space-3);
     font: inherit;
     font-weight: 500;
     cursor: pointer;
@@ -138,7 +146,7 @@
   .hq-status {
     color: var(--muted-foreground);
     border-top: 1px solid var(--border);
-    padding-top: 1.25rem;
+    padding-top: var(--space-4);
     font-size: var(--text-canvas);
   }
 
@@ -148,7 +156,7 @@
 
   .hq-status[data-tone='muted'] {
     border-top: 0;
-    padding-top: 0.5rem;
+    padding-top: var(--space-2);
   }
 
   .hq-status[data-tone='success'] {
@@ -170,15 +178,15 @@
   .hq-theme-control {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
-    margin: 1.25rem 0 0;
+    gap: var(--space-1);
+    margin: var(--space-4) 0 0;
     padding: 0;
     border: 0;
   }
 
   .hq-theme-control legend {
     padding: 0;
-    margin: 0 0 0.5rem;
+    margin: 0 0 var(--space-2);
     font-size: var(--text-canvas);
     font-weight: 500;
     color: var(--muted-foreground);
@@ -188,12 +196,12 @@
     appearance: none;
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--space-1);
     border: 1px solid var(--border);
     background: transparent;
     color: var(--foreground);
     border-radius: 0;
-    padding: 0.35rem 0.65rem;
+    padding: var(--space-2) var(--space-3);
     font: inherit;
     font-weight: 500;
     cursor: pointer;
