@@ -1,16 +1,80 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, UserRound, Cloud, Laptop } from 'lucide-react';
-import { activeWorkspace, type CompanionAction, type CompanionSnapshot, type ConflictChoice } from '../shared/companion';
+import { FolderOpen, RefreshCw, Wrench, Settings, ArrowUpRight, Plus, Check, Trash2, Terminal, ArrowRight, Laptop } from 'lucide-react';
+import { activeWorkspace, type CompanionAction, type CompanionSnapshot } from '../shared/companion';
 import { HEALTH_PREVIEW_FIXTURES } from '../shared/health-fixtures';
 import { createCompanionClient, type CompanionClient } from './companion-client';
 import { HqMark } from './components/hq-mark';
-import { ConflictList } from './components/conflict-list';
 import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
+import { AccountScreen } from './screens/account';
 import { SettingsScreen } from './screens/settings';
+import { SetupScreen } from './screens/setup';
+import { SyncScreen } from './screens/sync';
 
 const sections = [{ name: 'Workspace', icon: FolderOpen }, { name: 'Sync', icon: RefreshCw }, { name: 'Tools', icon: Wrench }, { name: 'Settings', icon: Settings }] as const;
 type Section = typeof sections[number]['name'];
+type ScreenState = 'empty' | 'loading' | 'error' | 'populated';
+
+function workspaceScreenState(input: {
+  state?: CompanionSnapshot;
+  error: string;
+  setupRunning: boolean;
+  workspace: ReturnType<typeof activeWorkspace>;
+}): ScreenState {
+  const { state, error, setupRunning, workspace } = input;
+  if (!state && !error) return 'loading';
+  if (error && !state) return 'error';
+  if (state?.setup && !state.setup.complete) {
+    if (state.setup.error) return 'error';
+    if (setupRunning) return 'loading';
+    return 'populated';
+  }
+  if (!workspace) return 'empty';
+  return 'populated';
+}
+
+function syncScreenState(input: {
+  state?: CompanionSnapshot;
+  error: string;
+  pending: string;
+  workspace: ReturnType<typeof activeWorkspace>;
+  connected: boolean;
+}): ScreenState {
+  const { state, error, pending, workspace, connected } = input;
+  if (!state && !error) return 'loading';
+  if (error) return 'error';
+  if (pending) return 'loading';
+  if (state?.sync.phase === 'error') return 'error';
+  if (!workspace || !connected) return 'empty';
+  return 'populated';
+}
+
+function toolsScreenState(input: {
+  state?: CompanionSnapshot;
+  error: string;
+  pending: string;
+  workspace: ReturnType<typeof activeWorkspace>;
+}): ScreenState {
+  const { state, error, pending, workspace } = input;
+  if (!state && !error) return 'loading';
+  if (error) return 'error';
+  if (pending) return 'loading';
+  if (!workspace) return 'empty';
+  return 'populated';
+}
+
+function settingsScreenState(input: {
+  state?: CompanionSnapshot;
+  error: string;
+  pending: string;
+}): ScreenState {
+  const { state, error, pending } = input;
+  if (!state && !error) return 'loading';
+  if (!state && error) return 'error';
+  if (pending) return 'loading';
+  return 'populated';
+}
+
 export function CompanionApp() {
   const [section, setSection] = useState<Section>('Workspace');
   const [client, setClient] = useState<CompanionClient>();
@@ -55,82 +119,109 @@ export function CompanionApp() {
   const enabled = !!state && !pending && !setupRunning && !signingIn;
   const attach = () => void run({ action: 'attach-workspace' }, 'Choosing your folder');
   const connected = state?.account.status === 'connected';
-  return <div className="companion-shell">
+  const workspaceLabel = workspace?.name ?? 'Let’s get you set up';
+  const screenStates = {
+    Workspace: workspaceScreenState({ state, error, setupRunning, workspace }),
+    Sync: syncScreenState({ state, error, pending, workspace, connected }),
+    Tools: toolsScreenState({ state, error, pending, workspace }),
+    Settings: settingsScreenState({ state, error, pending }),
+  } as const;
+  return <div className="companion-shell" data-testid="companion-shell">
     <aside className="companion-sidebar" aria-label="Desktop navigation">
       <HqMark className="brand-mark" />
       <nav aria-label="Companion">
-        {sections.map(({ name, icon: Icon }) => <button key={name} className="hq-button hq-nav-item" data-testid={name === 'Workspace' ? 'selected-sample' : undefined} data-selected={section === name} aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}><Icon size={17}/>{name}</button>)}
+        {sections.map(({ name, icon: Icon }) => <button key={name} className="hq-button hq-nav-item" data-testid={name === 'Workspace' ? 'selected-sample' : `nav-${name.toLowerCase()}`} data-selected={section === name} aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}><Icon size={17}/>{name}</button>)}
       </nav>
-      <div className="sidebar-footer"><Laptop size={15}/>This computer<span>{workspace?.name ?? 'Let’s get you set up'}</span></div>
+      <div className="sidebar-footer" data-testid="active-workspace" data-workspace={workspace?.id ?? ''}><Laptop size={15}/>This computer<span>{workspaceLabel}</span></div>
     </aside>
-    <main className="companion-main" data-focus-shell tabIndex={-1} aria-busy={!!pending}>
-      {client?.simulated && <p role="status" className="notice">Preview · Changes here are not saved.</p>}
-      {error && <div role="alert" className="notice error">{error}<Button variant="ghost" onClick={() => void run({ action: 'snapshot' }, 'Trying again')}>Try again</Button></div>}
+    <main className="companion-main" data-focus-shell tabIndex={-1} aria-busy={!!pending} data-active-section={section}>
+      {/* DEV-only: Vite DCE drops this fixture chrome from production bundles. */}
+      {import.meta.env.DEV && client?.simulated && (
+        <div role="status" className="notice" data-testid="preview-simulated-banner">
+          Preview · Changes here are not saved.{' '}
+          <Button
+            variant="ghost"
+            data-testid="preview-reset"
+            onClick={() => {
+              // Drop scenario selection and reload so fixtures restart from signed-out.
+              window.location.assign('/dev/companion');
+            }}
+          >
+            Reset preview
+          </Button>
+        </div>
+      )}
+      {error && <div role="alert" className="notice error" data-testid="companion-error">{error}<Button variant="ghost" onClick={() => void run({ action: 'snapshot' }, 'Trying again')}>Try again</Button></div>}
       {state?.account.error && <p role="alert" className="notice error">{state.account.error}</p>}
       {signingIn && <div role="status" className="notice">Finish signing in through your browser.<Button variant="ghost" disabled={!!pending} onClick={() => void run({ action: 'cancel-sign-in' }, 'Canceling sign-in')}>Cancel sign-in</Button></div>}
-      {pending && <p role="status" className="notice">{pending}…</p>}
-      {!state && !error && <p role="status">Opening HQ…</p>}
-      {section === 'Workspace' && state?.setup && !state.setup.complete ? <section className="welcome" aria-label="HQ setup">
-        <HqMark className="welcome-mark"/><h1>{setupRunning ? 'Getting HQ ready' : 'Let’s finish setting up'}</h1>
-        <p className="lead">We’ll prepare your workspace and the software it needs. This can take a few minutes.</p>
-        <ol className="setup-steps setup-progress">{state.setup.steps.map((step, index) => <li key={step.id}><span className="step-symbol">{step.status === 'ready' ? <Check size={16}/> : index + 1}</span><div><h2>{step.label}</h2><p>{step.status === 'ready' ? 'Ready' : step.status === 'working' ? 'In progress…' : step.status === 'error' ? 'Needs another try' : 'Up next'}</p></div></li>)}</ol>
-        {state.setup.error && <p className="notice error" role="alert">{state.setup.error}</p>}
-        <div className="welcome-actions">{setupRunning ? <Button variant="outline" disabled={!!pending} onClick={() => void run({ action: 'cancel-setup' }, 'Stopping setup')}>Cancel setup</Button> : <><Button disabled={!!pending} onClick={() => void run({ action: 'resume-setup' }, 'Continuing setup')}>Continue setup<ArrowRight size={16}/></Button><Button variant="ghost" disabled={!!pending} onClick={() => void run({ action: 'reset-setup' }, 'Choosing a different folder')}>Choose another folder</Button></>}</div>
-      </section> : section === 'Workspace' && !workspace ? <section className="welcome">
+      {pending && <p role="status" className="notice" data-testid="companion-pending">{pending}…</p>}
+      {!state && !error && <p role="status" data-testid="companion-loading">Opening HQ…</p>}
+      {section === 'Workspace' && state?.setup && !state.setup.complete ? (
+        <SetupScreen
+          setup={state.setup}
+          setupRunning={setupRunning}
+          pending={pending}
+          run={run}
+          screenState={screenStates.Workspace}
+        />
+      ) : section === 'Workspace' && !workspace ? <section className="welcome" data-screen="Workspace" data-screen-state={screenStates.Workspace} data-testid="screen-workspace">
         <HqMark className="welcome-mark"/>
         <h1>Your work, right here.</h1>
         <p className="lead">Set up HQ on this computer and bring your files and team together.</p>
-        <div className="welcome-actions"><Button disabled={!enabled} onClick={() => void run({ action: 'create-workspace' }, 'Preparing your workspace')}>Set up HQ<ArrowRight size={16}/></Button><Button variant="ghost" disabled={!enabled} onClick={attach}>I already have an HQ folder</Button></div>
+        <div className="welcome-actions"><Button disabled={!enabled} data-testid="action-create-workspace" onClick={() => void run({ action: 'create-workspace' }, 'Preparing your workspace')}>Set up HQ<ArrowRight size={16}/></Button><Button variant="ghost" disabled={!enabled} onClick={attach}>I already have an HQ folder</Button></div>
         <ol className="setup-steps">
           <li><span className="step-symbol">1</span><div><h2>Make yourself at home</h2><p>Choose where your work lives on this computer.</p></div></li>
           <li><span className="step-symbol">2</span><div><h2>Connect your account</h2><p>Sign in to find your team and shared work.</p></div></li>
           <li><span className="step-symbol">3</span><div><h2>Pick up where you left off</h2><p>Keep your files up to date across your devices.</p></div></li>
         </ol>
-      </section> : section === 'Workspace' && <>
+      </section> : section === 'Workspace' && <div data-screen="Workspace" data-screen-state={screenStates.Workspace} data-testid="screen-workspace">
         <header className="page-heading"><h1>Your workspace</h1><p className="lead">A home for your work on this computer.</p></header>
         <section className="content-section"><div className="section-heading"><h2>Folders</h2><Button variant="ghost" disabled={!enabled} onClick={attach}><Plus size={15}/>Add a folder</Button></div>
           <ul className="workspace-list">{state?.workspaces.map((item) => <li key={item.id} data-selected={item.id === state.activeWorkspaceId}><button className="workspace-choice" aria-pressed={item.id === state.activeWorkspaceId} disabled={!enabled} onClick={() => void run({ action: 'select-workspace', workspaceId: item.id }, 'Switching workspace')}><FolderOpen size={22}/><span><span>{item.name}</span><span className="muted workspace-path">{item.root}</span></span>{item.id === state.activeWorkspaceId && <Check size={16}/>}</button><Button variant="ghost" size="icon" aria-label={`Remove ${item.name} from app`} disabled={!enabled} onClick={() => setRemoveId(item.id)}><Trash2 size={15}/></Button></li>)}</ul>
           <div className="welcome-actions"><Button disabled={!enabled} onClick={() => void run({ action: 'open-folder', workspaceId: workspace!.id }, 'Opening your files')}><FolderOpen size={16}/>Open your files</Button></div>
         </section>
-        <section className="account-row"><UserRound size={23}/><div><h2>{connected ? state?.account.label ?? 'Your account' : 'Connect your account'}</h2><p>{connected ? 'You’re signed in to HQ.' : 'Sign in to bring your shared work to this computer.'}</p></div><Button variant="outline" disabled={!enabled} onClick={() => void run({ action: connected ? 'sign-out' : 'sign-in' }, connected ? 'Signing out' : 'Opening sign-in')}>{connected ? 'Sign out' : 'Sign in'}{!connected && <ArrowUpRight size={15}/>}</Button></section>
-      </>}
-      {section === 'Sync' && <>
-        <header className="page-heading"><h1>Sync</h1><p className="lead">Your latest work, wherever you need it.</p></header>
-        <section className="status-view"><div className="status-orb"><Cloud size={30} strokeWidth={1.5}/></div><h2>{!workspace ? 'Choose a workspace to get started' : !connected ? 'Bring your work together' : state?.sync.message}</h2><p className="lead">{!workspace ? 'Set up HQ or choose your existing folder first.' : !connected ? 'Sign in to keep your files up to date across your devices.' : 'Your files stay on this computer, even when you’re offline.'}</p>
-          {workspace && connected && <div className="sync-choice">
-            {state?.syncScopes?.length ? <>
-              <label htmlFor="sync-workspace">Keep these files on this computer</label>
-              <select id="sync-workspace" className="hq-select" value={state.selectedSyncScope ?? ''} disabled={!enabled} onChange={event => void run({ action: 'select-sync-scope', scopeId: event.target.value }, 'Choosing your shared work')}>
-                <option value="" disabled>Choose your work</option>
-                {state.syncScopes.map(scope => <option key={scope.id} value={scope.id}>{scope.label}</option>)}
-              </select>
-              {state.selectedSyncScope === 'all' && <p className="muted">Syncs your personal files and every company you belong to, the same way HQ Desktop does.</p>}
-            </> : <Button variant="outline" disabled={!enabled} onClick={() => void run({ action: 'load-sync-scopes' }, 'Finding your shared work')}>Find my shared work</Button>}
-          </div>}
-          {workspace && connected && (state?.sync.phase === 'conflict' || (state?.sync.conflicts ?? 0) > 0) && (
-            <ConflictList
-              paths={state?.sync.conflictPaths ?? []}
-              disabled={!enabled}
-              onResolve={(choice: ConflictChoice) => void run({ action: 'resolve-conflicts', choice }, choice === 'abort' ? 'Pausing sync' : 'Applying your choice')}
-            />
-          )}
-          <div className="welcome-actions">{!workspace ? <Button onClick={() => setSection('Workspace')}>Go to workspace<ArrowRight size={16}/></Button> : !connected || state?.sync.phase === 'not-connected' ? <Button disabled={!enabled} onClick={() => void run({ action: 'sign-in' }, 'Opening sign-in')}>Sign in<ArrowUpRight size={15}/></Button> : state?.sync.phase === 'conflict' ? null : <Button disabled={!enabled || !state?.selectedSyncScope} onClick={() => void run({ action: ['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'pause-sync' : 'resume-sync' }, 'Updating sync')}>{['syncing', 'idle', 'offline'].includes(state?.sync.phase ?? '') ? 'Pause sync' : state?.sync.phase === 'paused' ? 'Start syncing' : 'Try sync again'}</Button>}</div>
-          <dl className="sync-details"><div><dt>Workspace</dt><dd>{workspace?.name ?? 'Not selected'}</dd></div><div><dt>Syncing</dt><dd>{state?.syncScopes?.find(scope => scope.id === state.selectedSyncScope)?.label ?? 'Not selected'}</dd></div><div><dt>Last synced</dt><dd>{state?.sync.lastSuccess ? new Date(state.sync.lastSuccess).toLocaleString() : 'Not yet'}</dd></div>{(state?.sync.conflicts ?? 0) > 0 && <div><dt>Needs a choice</dt><dd>{state!.sync.conflicts === 1 ? '1 file' : `${state!.sync.conflicts} files`}</dd></div>}</dl>
-        </section>
-      </>}
-      {section === 'Tools' && <>
-        <header className="page-heading"><h1>Tools</h1><p className="lead">A few shortcuts for your workspace.</p></header>
-        {!workspace && <p className="notice">Choose your workspace first to use these shortcuts.</p>}
-        <section>{[{ title: 'Files', description: 'Browse and organize your work.', action: 'open-folder' as const, icon: FolderOpen }, { title: 'Terminal', description: 'For when you want to work with commands.', action: 'open-terminal' as const, icon: Terminal }].map(({ title, description, action, icon: Icon }) => <div className="tool-row" key={title}><Icon size={22}/><div><h2>{title}</h2><p>{description}</p></div><Button variant="ghost" disabled={!enabled || !workspace} onClick={() => void run({ action, workspaceId: workspace!.id }, `Opening ${title.toLowerCase()}`)}>Open {title.toLowerCase()}<ArrowUpRight size={15}/></Button></div>)}</section>
-      </>}
-      {section === 'Settings' && state && (
-        <SettingsScreen
+        {state && (
+          <AccountScreen state={state} enabled={enabled} connected={connected} run={run} />
+        )}
+      </div>}
+      {section === 'Sync' && state && (
+        <SyncScreen
           state={state}
-          health={state.health ?? HEALTH_PREVIEW_FIXTURES.unavailable}
-          enabled={enabled}
+          workspaceName={workspace?.name}
           connected={connected}
+          enabled={enabled}
+          screenState={screenStates.Sync}
+          onGoWorkspace={() => setSection('Workspace')}
           run={run}
         />
+      )}
+      {section === 'Sync' && !state && (
+        <div data-screen="Sync" data-screen-state={screenStates.Sync} data-testid="screen-sync">
+          <header className="page-heading"><h1>Sync</h1><p className="lead">Your latest work, wherever you need it.</p></header>
+          <p role="status" className="notice">{error ? 'Sync will be available after HQ reconnects.' : 'Loading sync…'}</p>
+        </div>
+      )}
+      {section === 'Tools' && <div data-screen="Tools" data-screen-state={screenStates.Tools} data-testid="screen-tools">
+        <header className="page-heading"><h1>Tools</h1><p className="lead">A few shortcuts for your workspace.</p></header>
+        {!workspace && <p className="notice" data-testid="tools-empty">Choose your workspace first to use these shortcuts.</p>}
+        <section>{[{ title: 'Files', description: 'Browse and organize your work.', action: 'open-folder' as const, icon: FolderOpen }, { title: 'Terminal', description: 'For when you want to work with commands.', action: 'open-terminal' as const, icon: Terminal }].map(({ title, description, action, icon: Icon }) => <div className="tool-row" key={title}><Icon size={22}/><div><h2>{title}</h2><p>{description}</p></div><Button variant="ghost" disabled={!enabled || !workspace} onClick={() => void run({ action, workspaceId: workspace!.id }, `Opening ${title.toLowerCase()}`)}>Open {title.toLowerCase()}<ArrowUpRight size={15}/></Button></div>)}</section>
+      </div>}
+      {section === 'Settings' && !state && (
+        <section data-screen="Settings" data-screen-state={screenStates.Settings} data-testid="screen-settings" aria-label="Settings">
+          <header className="page-heading"><h1>Settings</h1><p className="lead">Make HQ feel at home.</p></header>
+          <p role="status" className="notice">{error ? 'Settings will be available after HQ reconnects.' : 'Loading settings…'}</p>
+        </section>
+      )}
+      {section === 'Settings' && state && (
+        <div data-screen="Settings" data-screen-state={screenStates.Settings} data-testid="screen-settings">
+          <SettingsScreen
+            state={state}
+            health={state.health ?? HEALTH_PREVIEW_FIXTURES.unavailable}
+            enabled={enabled}
+            connected={connected}
+            run={run}
+          />
+        </div>
       )}
       <Dialog open={!!removeId} onOpenChange={(open) => { if (!open) setRemoveId(undefined); }}><DialogContent><DialogTitle>Remove this workspace?</DialogTitle><DialogDescription>Your folder and its files will stay on this computer. You can add it again anytime.</DialogDescription><div className="dialog-actions"><Button variant="outline" onClick={() => setRemoveId(undefined)}>Keep workspace</Button><Button onClick={() => { const id = removeId!; setRemoveId(undefined); void run({ action: 'remove-workspace', workspaceId: id }, 'Removing workspace'); }}>Remove from app</Button></div></DialogContent></Dialog>
     </main>

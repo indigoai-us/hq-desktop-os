@@ -11,7 +11,7 @@
     "pnpm": "10.28.2"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 4173 --strictPort",
+    "dev": "node scripts/dev-server.mjs",
     "dev:desktop": "pnpm build:main && pnpm build:preload && electron .",
     "build": "pnpm build:main && pnpm build:preload && pnpm build:renderer",
     "build:main": "tsc -p tsconfig.node.json",
@@ -26,6 +26,7 @@
     "test:e2e": "playwright test --config playwright.config.ts",
     "test:electron": "playwright test --config playwright.electron.config.ts",
     "test:host-acceptance": "playwright test --config playwright.host-acceptance.config.ts",
+    "prepare:runtime": "node scripts/prepare-runtime.mjs",
     "stage:runtime": "node scripts/stage-runtime.mjs",
     "preview:prod": "vite preview --host 127.0.0.1 --port 4319 --strictPort",
     "test:acceptance": "pnpm test:e2e && pnpm test:electron",

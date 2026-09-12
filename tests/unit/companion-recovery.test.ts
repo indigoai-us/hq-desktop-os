@@ -3,9 +3,14 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const host = vi.hoisted(() => ({ directory: '', restore: vi.fn(), scopes: vi.fn(), provision: vi.fn() }));
-vi.mock('electron', () => ({ app: { getPath: () => host.directory, getVersion: () => 'test' }, dialog: {}, shell: {}, safeStorage: { getSelectedStorageBackend: () => 'gnome_libsecret', isEncryptionAvailable: () => true } }));
+vi.mock('electron', () => ({
+  app: { getPath: () => host.directory, getVersion: () => 'test' },
+  dialog: {},
+  shell: { openExternal: vi.fn(async () => undefined) },
+  safeStorage: { getSelectedStorageBackend: () => 'gnome_libsecret', isEncryptionAvailable: () => true },
+}));
 vi.mock('../../src/main/auth', () => ({ AccountSession: class { identity = { sub: 'alice', label: 'Alice' }; restore = host.restore; signOut = vi.fn(async () => { this.identity = undefined as never; }); } }));
-vi.mock('../../src/main/sync-supervisor', () => ({ SyncSupervisor: class { running = false; state = { phase: 'paused', message: 'Paused', lastSuccess: null, conflicts: 0, conflictPaths: [] as string[] }; start = vi.fn(() => { this.running = true; }); stop = vi.fn(async () => { this.running = false; }); pause = vi.fn(async () => { this.running = false; this.state = { ...this.state, phase: 'paused', message: 'Sync is paused' }; }); reset = vi.fn(async () => { this.running = false; }); } }));
+vi.mock('../../src/main/sync-supervisor', () => ({ SyncSupervisor: class { running = false; state = { phase: 'paused', message: 'Paused', lastSuccess: null, conflicts: 0, conflictPaths: [] as string[], transport: null as null, pass: null as null, pendingCount: 0 }; start = vi.fn(() => { this.running = true; }); stop = vi.fn(async () => { this.running = false; }); pause = vi.fn(async () => { this.running = false; this.state = { ...this.state, phase: 'paused', message: 'Sync is paused', transport: null, pass: null, pendingCount: 0 }; }); reset = vi.fn(async () => { this.running = false; }); } }));
 vi.mock('../../src/main/sync-scopes', async importOriginal => ({ ...await importOriginal<object>(), loadScopes: host.scopes, ensurePersonalStorage: host.provision }));
 import { CompanionService } from '../../src/main/companion';
 import { SyncSelectionStore } from '../../src/main/sync-selection';
@@ -62,6 +67,24 @@ describe('desktop sync recovery', () => {
     expect(service.account.identity).toBeUndefined(); expect(service.sync.running).toBe(false);
     spy.mockRestore(); await service.shutdown();
   });
+  it('stops sync and clears account UI state on sign-out without removing workspace registration', async () => {
+    const { writeFile, readFile } = await import('node:fs/promises');
+    await writeFile(join(root, 'keep.txt'), 'user-owned');
+    const service = await prepare();
+    await service.request({ action: 'diagnostics' });
+    expect(service.sync.start).toHaveBeenCalled();
+    const before = service.registry.snapshot.workspaces.length;
+    await service.request({ action: 'sign-out' });
+    expect(service.account.identity).toBeUndefined();
+    expect(service.sync.reset).toHaveBeenCalled();
+    expect(service.sync.running).toBe(false);
+    expect(service.registry.snapshot.workspaces).toHaveLength(before);
+    expect(await readFile(join(root, 'keep.txt'), 'utf8')).toBe('user-owned');
+    const snap = await service.snapshot();
+    expect(snap.account).toMatchObject({ status: 'signed-out', label: null });
+    expect(snap.sync.phase).toBe('not-connected');
+    await service.shutdown();
+  });
   it('does not start after a pause arrives during provisioning', async () => {
     let release!: () => void; host.provision.mockImplementation(() => new Promise<void>(resolve => { release = resolve; }));
     const service = await prepare(); await vi.waitFor(() => expect(host.provision).toHaveBeenCalled());
@@ -70,7 +93,7 @@ describe('desktop sync recovery', () => {
   });
   it('restarts sync with an explicit one-shot conflict choice and returns to abort next', async () => {
     const service = await prepare(false);
-    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'] };
+    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'], transport: 'realtime', pass: null, pendingCount: 0 };
     await service.request({ action: 'resolve-conflicts', choice: 'keep' });
     expect(service.sync.start).toHaveBeenCalledWith(root, 'personal', expect.any(Object), 'keep');
     await service.request({ action: 'pause-sync' });
@@ -80,11 +103,56 @@ describe('desktop sync recovery', () => {
   });
   it('pauses sync when the user chooses to stop on conflicts', async () => {
     const service = await prepare(false);
-    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'] };
+    service.sync.state = { phase: 'conflict', message: 'One file needs your attention', lastSuccess: null, conflicts: 1, conflictPaths: ['notes/shared-draft.md'], transport: 'realtime', pass: null, pendingCount: 0 };
     await service.request({ action: 'resolve-conflicts', choice: 'abort' });
     expect(service.sync.pause).toHaveBeenCalled();
     expect(service.sync.start).not.toHaveBeenCalled();
     expect(service.sync.state).toMatchObject({ phase: 'paused', conflictPaths: ['notes/shared-draft.md'] });
+    await service.shutdown();
+  });
+  it('keeps membership discovery failures as an explicit retry state instead of an empty list', async () => {
+    host.scopes.mockRejectedValue(new Error('Your shared workspaces could not be loaded. Check your connection and try again.'));
+    const service = await prepare(false);
+    await expect(service.request({ action: 'load-sync-scopes' })).rejects.toThrow(/could not be loaded/i);
+    const snap = await service.snapshot();
+    expect(snap.memberships).toEqual({
+      status: 'error',
+      error: 'Your shared workspaces could not be loaded. Check your connection and try again.',
+    });
+    // Failed discovery must not look like a successful zero-company load.
+    expect(snap.memberships.status).not.toBe('ready');
+    expect(snap.syncScopes).toEqual([]);
+    await service.shutdown();
+  });
+  it('preserves the last good membership list when a refresh fails', async () => {
+    const service = await prepare(false);
+    await service.request({ action: 'diagnostics' });
+    host.scopes.mockRejectedValueOnce(new Error('Your shared workspaces could not be loaded. Check your connection and try again.'));
+    await expect(service.request({ action: 'load-sync-scopes' })).rejects.toThrow(/could not be loaded/i);
+    const snap = await service.snapshot();
+    expect(snap.memberships.status).toBe('error');
+    expect(snap.syncScopes).toEqual([{ id: 'personal', label: 'My personal work' }]);
+    await service.shutdown();
+  });
+  it('refreshes memberships when focus returns after opening the HQ company web flow', async () => {
+    const { shell } = await import('electron');
+    const openExternal = vi.spyOn(shell, 'openExternal').mockResolvedValue(undefined);
+    const service = await prepare(false);
+    await service.request({ action: 'diagnostics' });
+    host.scopes.mockResolvedValueOnce([
+      { id: 'all', label: 'Everything I’m part of (2)' },
+      { id: 'personal', label: 'My personal work only' },
+      { id: 'cmp_new', label: 'New team' },
+    ]);
+    await service.request({ action: 'open-hq-web', destination: 'create-company' });
+    expect(openExternal).toHaveBeenCalledWith('https://hq.computer/signup/team');
+    service.onWindowFocus();
+    await vi.waitFor(async () => {
+      const snap = await service.snapshot();
+      expect(snap.memberships.status).toBe('ready');
+      expect(snap.syncScopes?.some((scope) => scope.id === 'cmp_new')).toBe(true);
+    });
+    openExternal.mockRestore();
     await service.shutdown();
   });
 });

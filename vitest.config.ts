@@ -16,6 +16,7 @@ export default defineConfig({
       'tests/unit/**/*.test.ts',
       'tests/unit/**/*.test.tsx',
       'tests/native/**/*.test.ts',
+      'tests/runtime/**/*.test.ts',
       '__tests__/stories/**/*.test.ts',
     ],
   },

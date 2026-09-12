@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { c } from 'tar';
-import { createWorkspace, safeArchivePath, SetupJournal, initialSetup } from '../../src/main/setup';
+import { createWorkspace, recoverInterruptedSetup, safeArchivePath, SetupJournal, initialSetup } from '../../src/main/setup';
 import { runSetupCommand } from '../../src/main/setup-dependencies';
 const roots: string[] = [];
 async function temp() { const root = await mkdtemp(join(tmpdir(), 'hq-setup-test-')); roots.push(root); return root; }
@@ -50,6 +50,14 @@ describe('fresh HQ setup', () => {
     const state = initialSetup(join(root, 'HQ')); state.steps[0]!.status = 'ready'; state.steps[1]!.status = 'working';
     await journal.save(state); expect(await journal.load()).toEqual(state);
     await writeFile(join(root, 'setup.json'), '{}'); await expect(journal.load()).rejects.toThrow('could not be read');
+  });
+  it('marks in-flight steps as retryable after a crash without clearing completed ones', () => {
+    const state = initialSetup('/tmp/HQ');
+    state.steps[0]!.status = 'ready';
+    state.steps[1]!.status = 'working';
+    const recovered = recoverInterruptedSetup(state);
+    expect(recovered.steps.map((step) => step.status)).toEqual(['ready', 'error', 'waiting']);
+    expect(recovered.error).toMatch(/stopped unexpectedly/i);
   });
 });
 describe('owned setup commands', () => {

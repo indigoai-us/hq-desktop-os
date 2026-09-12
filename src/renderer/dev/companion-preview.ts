@@ -1,104 +1,261 @@
 import type { CompanionClient } from '../companion-client';
 import type { CompanionSnapshot } from '../../shared/companion';
 import { HEALTH_PREVIEW_FIXTURES } from '../../shared/health-fixtures';
-/** Development only: no host access, network, or persistence. */
+import {
+  parsePreviewScenario,
+  previewSetupSteps,
+  snapshotForScenario,
+} from './scenarios';
+
+/** Development only: no host access, network, or persistence. Reset by reloading or clearing `?scenario=`. */
 export function createPreviewClient(): CompanionClient {
-  const scenario = new URLSearchParams(window.location.search).get('scenario');
-  const workspace = { id: 'preview-workspace', name: 'My HQ', root: '/home/example/HQ', environment: 'linux' as const, addedAt: '2026-09-11T00:00:00Z' };
-  const healthScenario = scenario === 'health-healthy' ? 'healthy'
-    : scenario === 'health-degraded' ? 'degraded'
-      : scenario === 'health-stale' ? 'stale'
-        : scenario === 'health-checking' ? 'checking'
-          : 'unavailable';
-  const state: CompanionSnapshot = {
-    version: 'preview', platform: 'linux', installationId: 'preview-only',
-    workspaces: [], activeWorkspaceId: null,
-    account: { status: 'signed-out', label: null },
-    sync: { phase: 'not-connected', lastSuccess: null, message: 'Sign in to sync your files.', conflicts: 0, conflictPaths: [] },
-    runtime: { version: '6.16.35', available: true, node: '24' },
-    credentials: { available: true, backend: 'preview' },
-    preferences: { closeToTray: false, launchAtLogin: false }, diagnostics: [],
-    health: structuredClone(HEALTH_PREVIEW_FIXTURES[healthScenario]),
-  };
-  const attach = () => { if (!state.workspaces.length) state.workspaces.push(workspace); state.activeWorkspaceId = workspace.id; };
+  const params = new URLSearchParams(window.location.search);
+  const initialScenario = parsePreviewScenario(params.get('scenario'));
+  /** Optional `?delay=ms` slows non-snapshot actions so pending UI and duplicate guards are testable. */
+  const delayMs = Math.max(0, Number.parseInt(params.get('delay') ?? '0', 10) || 0);
+  /** Optional `?fail=action` makes that companion action reject once loaded. */
+  const failAction = params.get('fail');
+  const state: CompanionSnapshot = snapshotForScenario(initialScenario);
   let setupStarted: number | undefined;
-  const setup = () => ({ root: workspace.root, complete: false, error: null, steps: [
-    { id: 'content', label: 'Getting your workspace ready', status: 'working' as const },
-    { id: 'dependencies', label: 'Preparing this computer', status: 'waiting' as const },
-    { id: 'personalize', label: 'Adding the finishing touches', status: 'waiting' as const },
-  ] });
-  if (scenario === 'setup-error') {
-    state.setup = setup(); state.setup.steps[0]!.status = 'error';
-    state.setup.error = 'There is already an HQ folder here. Choose another folder or use your existing one.';
-  }
-  if (['connected', 'offline', 'conflict', 'paused'].includes(scenario ?? '')) {
-    attach(); state.account = { status: 'connected', label: 'Alex' };
-    state.syncScopes = [
-      { id: 'all', label: 'Everything I’m part of (2)' },
-      { id: 'personal', label: 'My personal work only' },
-      { id: 'cmp_example', label: 'My team' },
-    ];
-    state.selectedSyncScope = 'all';
-    state.sync = {
-      phase: scenario === 'connected' ? 'idle' : scenario as 'offline' | 'conflict' | 'paused',
-      lastSuccess: '2026-09-11T00:00:00Z',
-      message: scenario === 'offline' ? 'Waiting for a connection' : scenario === 'conflict' ? 'One file needs your attention' : scenario === 'paused' ? 'Sync is paused' : 'Your files are up to date',
-      conflicts: scenario === 'conflict' ? 1 : 0,
-      conflictPaths: scenario === 'conflict' ? ['notes/shared-draft.md'] : [],
-    };
-  }
-  return { simulated: true, async request(request) {
-    if (request.action === 'create-workspace') { state.setup = setup(); setupStarted = Date.now(); }
-    if (request.action === 'resume-setup' && state.setup) { state.setup.error = null; setupStarted = Date.now(); }
-    if (request.action === 'cancel-setup' && state.setup) { setupStarted = undefined; state.setup.error = 'Setup was canceled. You can continue when you’re ready.'; for (const step of state.setup.steps) if (step.status === 'working') step.status = 'error'; }
-    if (request.action === 'reset-setup') { setupStarted = undefined; delete state.setup; }
-    if (setupStarted !== undefined && state.setup) {
-      const current = Math.floor((Date.now() - setupStarted) / 400);
-      state.setup.steps.forEach((step, index) => { step.status = index < current ? 'ready' : index === current ? 'working' : 'waiting'; });
-      if (current >= state.setup.steps.length) { state.setup.complete = true; setupStarted = undefined; attach(); }
+
+  const attach = () => {
+    if (!state.workspaces.length) {
+      state.workspaces.push({
+        id: 'preview-workspace',
+        name: 'My HQ',
+        root: '/home/example/HQ',
+        environment: 'linux',
+        wslDistro: null,
+        addedAt: '2026-09-11T00:00:00Z',
+      });
     }
-    if (request.action === 'attach-workspace') attach();
-    if (request.action === 'select-workspace') state.activeWorkspaceId = request.workspaceId!;
-    if (request.action === 'remove-workspace') { state.workspaces = state.workspaces.filter(w => w.id !== request.workspaceId); state.activeWorkspaceId = state.workspaces[0]?.id ?? null; delete state.setup; }
-    if (request.action === 'sign-in') {
-      state.account = { status: 'connected', label: 'Alex' };
-      state.syncScopes = [
-        { id: 'all', label: 'Everything I’m part of (2)' },
-        { id: 'personal', label: 'My personal work only' },
-        { id: 'cmp_example', label: 'My team' },
-      ];
-      state.selectedSyncScope = 'all';
-      state.sync = { phase: 'syncing', message: 'Connecting your files', lastSuccess: null, conflicts: 0, conflictPaths: [] };
-    }
-    if (request.action === 'sign-out') { state.syncScopes = []; state.selectedSyncScope = undefined; state.account = { status: 'signed-out', label: null }; state.sync = { phase: 'not-connected', lastSuccess: null, message: 'Sign in to sync your files.', conflicts: 0, conflictPaths: [] }; }
-    if (request.action === 'load-sync-scopes') {
-      state.syncScopes = [
-        { id: 'all', label: 'Everything I’m part of (2)' },
-        { id: 'personal', label: 'My personal work only' },
-        { id: 'cmp_example', label: 'My team' },
-      ];
-      state.selectedSyncScope = 'all';
-    }
-    if (request.action === 'select-sync-scope') { state.selectedSyncScope = request.scopeId; state.sync = { phase: 'paused', message: 'Ready when you are', lastSuccess: null, conflicts: 0, conflictPaths: [] }; }
-    if (request.action === 'set-preference') state.preferences[request.preference!] = request.enabled!;
-    if (request.action === 'pause-sync') { state.sync.phase = 'paused'; state.sync.message = 'Sync is paused'; }
-    if (request.action === 'resume-sync') { state.sync = { phase: 'idle', message: 'Your files are up to date', lastSuccess: new Date().toISOString(), conflicts: 0, conflictPaths: [] }; }
-    if (request.action === 'resolve-conflicts') {
-      const listed = state.sync.conflictPaths;
-      const targets = request.paths?.length ? request.paths : listed;
-      if (!targets.length) throw new Error('There are no conflicting files to resolve right now.');
-      if (request.paths?.length && request.paths.some((path) => !listed.includes(path))) throw new Error('Choose conflicting files from the current list.');
-      if (request.choice === 'abort') {
-        state.sync = { ...state.sync, phase: 'paused', message: 'Sync is paused', conflicts: listed.length, conflictPaths: listed };
-      } else {
-        state.sync = { phase: 'idle', message: 'Your files are up to date', lastSuccess: new Date().toISOString(), conflicts: 0, conflictPaths: [] };
+    state.activeWorkspaceId = 'preview-workspace';
+  };
+
+  return {
+    simulated: true,
+    async request(request) {
+      if (delayMs > 0 && request.action !== 'snapshot') {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
-    }
-    if (request.action === 'diagnostics') {
-      state.health = structuredClone(HEALTH_PREVIEW_FIXTURES.checking);
-      // Preview only: flip to healthy on the next snapshot tick.
-      setTimeout(() => { state.health = structuredClone(HEALTH_PREVIEW_FIXTURES.healthy); }, 400);
-    }
-    return structuredClone(state);
-  } };
+      if (failAction && request.action === failAction) {
+        throw new Error('That did not finish. Please try again.');
+      }
+      if (request.action === 'create-workspace') {
+        state.setup = previewSetupSteps();
+        setupStarted = Date.now();
+      }
+      if (request.action === 'resume-setup' && state.setup) {
+        state.setup.error = null;
+        setupStarted = Date.now();
+      }
+      if (request.action === 'cancel-setup' && state.setup) {
+        setupStarted = undefined;
+        state.setup.error = 'Setup was canceled. You can continue when you’re ready.';
+        for (const step of state.setup.steps) {
+          if (step.status === 'working') step.status = 'error';
+        }
+      }
+      if (request.action === 'reset-setup') {
+        setupStarted = undefined;
+        delete state.setup;
+      }
+      if (setupStarted !== undefined && state.setup) {
+        const current = Math.floor((Date.now() - setupStarted) / 400);
+        state.setup.steps.forEach((step, index) => {
+          step.status = index < current ? 'ready' : index === current ? 'working' : 'waiting';
+        });
+        if (current >= state.setup.steps.length) {
+          state.setup.complete = true;
+          setupStarted = undefined;
+          attach();
+        }
+      }
+      if (request.action === 'attach-workspace') attach();
+      if (request.action === 'select-workspace') state.activeWorkspaceId = request.workspaceId!;
+      if (request.action === 'remove-workspace') {
+        state.workspaces = state.workspaces.filter((w) => w.id !== request.workspaceId);
+        state.activeWorkspaceId = state.workspaces[0]?.id ?? null;
+        delete state.setup;
+      }
+      if (request.action === 'sign-in') {
+        state.account = { status: 'connected', label: 'Alex' };
+        state.syncScopes = [
+          { id: 'all', label: 'Everything I’m part of (2)' },
+          { id: 'personal', label: 'My personal work only' },
+          { id: 'cmp_example', label: 'My team' },
+        ];
+        state.selectedSyncScope = 'all';
+        state.memberships = { status: 'ready', error: null };
+        state.sync = {
+          phase: 'syncing',
+          message: 'Connecting your files',
+          lastSuccess: null,
+          conflicts: 0,
+          conflictPaths: [],
+          transport: null,
+          pass: 'reconciling',
+          pendingCount: 0,
+        };
+      }
+      if (request.action === 'sign-out') {
+        state.syncScopes = [];
+        state.selectedSyncScope = undefined;
+        state.memberships = { status: 'idle', error: null };
+        state.account = { status: 'signed-out', label: null };
+        state.sync = {
+          phase: 'not-connected',
+          lastSuccess: null,
+          message: 'Sign in to sync your files.',
+          conflicts: 0,
+          conflictPaths: [],
+          transport: null,
+          pass: null,
+          pendingCount: 0,
+        };
+      }
+      if (request.action === 'load-sync-scopes') {
+        state.syncScopes = [
+          { id: 'all', label: 'Everything I’m part of (2)' },
+          { id: 'personal', label: 'My personal work only' },
+          { id: 'cmp_example', label: 'My team' },
+        ];
+        state.selectedSyncScope = 'all';
+        state.memberships = { status: 'ready', error: null };
+      }
+      if (request.action === 'open-hq-web') {
+        // Preview only: pretend the browser opened; membership refresh stays manual.
+        state.account.error = undefined;
+      }
+      if (request.action === 'select-sync-scope') {
+        if (!(state.syncScopes ?? []).some((scope) => scope.id === request.scopeId)) {
+          throw new Error('This shared workspace is no longer available.');
+        }
+        state.selectedSyncScope = request.scopeId;
+        state.sync = {
+          phase: 'paused',
+          message: 'Ready when you are',
+          lastSuccess: null,
+          conflicts: 0,
+          conflictPaths: [],
+          transport: null,
+          pass: null,
+          pendingCount: 0,
+        };
+      }
+      if (request.action === 'set-preference') {
+        if (request.preference === 'closeToTray' && request.enabled && !state.trayAvailable) {
+          throw new Error('This desktop does not support keeping HQ in the tray. Keep the window open to continue syncing.');
+        }
+        if (request.preference === 'launchAtLogin' && request.enabled && !state.launchAtLoginSupported) {
+          throw new Error('Automatic startup is not available inside WSL. Open HQ from Windows after you sign in, or start it yourself when you need it.');
+        }
+        state.preferences[request.preference!] = request.enabled!;
+      }
+      if (request.action === 'pause-sync') {
+        state.sync.phase = 'paused';
+        state.sync.message = 'Sync is paused';
+        state.sync.transport = null;
+        state.sync.pass = null;
+        state.sync.pendingCount = 0;
+      }
+      if (request.action === 'resume-sync') {
+        // Preview simulates a successful watch pass ending in live updates.
+        // Scope must already be authorized; revoked scopes stay actionable errors.
+        if (!state.selectedSyncScope || !(state.syncScopes ?? []).some((scope) => scope.id === state.selectedSyncScope)) {
+          throw new Error('This shared workspace is no longer available.');
+        }
+        state.sync = {
+          phase: 'idle',
+          message: 'Your files are up to date',
+          lastSuccess: new Date().toISOString(),
+          conflicts: 0,
+          conflictPaths: [],
+          transport: 'realtime',
+          pass: null,
+          pendingCount: 0,
+        };
+      }
+      if (request.action === 'resolve-conflicts') {
+        const listed = state.sync.conflictPaths;
+        const targets = request.paths?.length ? request.paths : listed;
+        if (!targets.length) throw new Error('There are no conflicting files to resolve right now.');
+        if (request.paths?.length && request.paths.some((path) => !listed.includes(path))) {
+          throw new Error('Choose conflicting files from the current list.');
+        }
+        if (request.choice === 'abort') {
+          state.sync = {
+            ...state.sync,
+            phase: 'paused',
+            message: 'Sync is paused',
+            conflicts: listed.length,
+            conflictPaths: listed,
+            transport: null,
+            pass: null,
+            pendingCount: 0,
+          };
+        } else {
+          state.sync = {
+            phase: 'idle',
+            message: 'Your files are up to date',
+            lastSuccess: new Date().toISOString(),
+            conflicts: 0,
+            conflictPaths: [],
+            transport: 'realtime',
+            pass: null,
+            pendingCount: 0,
+          };
+        }
+      }
+      if (request.action === 'diagnostics') {
+        state.health = structuredClone(HEALTH_PREVIEW_FIXTURES.checking);
+        // Preview only: flip to healthy on the next snapshot tick.
+        setTimeout(() => {
+          state.health = structuredClone(HEALTH_PREVIEW_FIXTURES.healthy);
+          if (state.runtimeRepair?.diagnosis === 'ok') {
+            state.runtime.available = true;
+          }
+        }, 400);
+      }
+      if (request.action === 'preview-diagnostics') {
+        state.diagnosticsPreview = {
+          generatedAt: '2026-09-11T12:00:00.000Z',
+          text: `${JSON.stringify({
+            generatedAt: '2026-09-11T12:00:00.000Z',
+            app: 'hq-desktop-os',
+            version: state.version,
+            platform: state.platform,
+            workspaceCount: state.workspaces.length,
+            workspaceEnvironments: state.workspaces.map((workspace) => workspace.environment),
+            runtime: { ...state.runtime, diagnosis: state.runtimeRepair?.diagnosis ?? 'ok' },
+            checks: state.diagnostics,
+            health: {
+              overall: state.health.overall,
+              lastCheckedAt: state.health.lastCheckedAt,
+              reportingEnabled: false,
+              clientName: 'hq-desktop-os',
+              checks: state.health.checks.map(({ id, label, status, detail }) => ({ id, label, status, detail })),
+            },
+          }, null, 2)}\n`,
+        };
+      }
+      if (request.action === 'dismiss-diagnostics-preview' || request.action === 'export-diagnostics') {
+        state.diagnosticsPreview = null;
+      }
+      if (request.action === 'repair-runtime') {
+        state.runtimeRepair = {
+          status: 'ready',
+          diagnosis: 'ok',
+          guidance: 'Owned runtime tools were restored. Your workspace files were not changed.',
+        };
+        state.runtime.available = true;
+        const runtimeCheck = state.diagnostics.find((item) => item.name === 'Bundled runtime');
+        if (runtimeCheck) {
+          runtimeCheck.state = 'ok';
+          runtimeCheck.detail = 'The managed HQ runtime is available. HQ Cloud 6.16.35 · Node 24';
+        }
+      }
+      return structuredClone(state);
+    },
+  };
 }

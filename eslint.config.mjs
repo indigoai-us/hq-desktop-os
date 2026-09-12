@@ -2,10 +2,10 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
 export default tseslint.config(
-  { ignores: ['dist/**', 'dist-runtime/**', 'node_modules/**', 'playwright-report/**', 'test-results/**'] },
+  { ignores: ['dist/**', 'dist-runtime/**', 'node_modules/**', 'playwright-report/**', 'test-results/**', 'release/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  { files: ['**/*.{ts,tsx,mjs}'], languageOptions: { globals: globals.node } },
+  { files: ['**/*.{ts,tsx,mjs,cjs}'], languageOptions: { globals: globals.node } },
   { files: ['src/renderer/**/*.{ts,tsx}'], languageOptions: { globals: globals.browser } },
   {
     files: ['src/renderer/public/**/*.js'],

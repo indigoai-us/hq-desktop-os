@@ -1,44 +1,20 @@
 import {
-  CLIENT_HEALTH_ATTRIBUTION_HEADER,
-  CLIENT_HEALTH_CLIENT_NAME,
   CLIENT_HEALTH_CONTRACT_VERSION,
   healthArchFromNode,
   healthPlatformFromNode,
   parseClientHealthHeartbeat,
-  type ClientHealthFailureReason,
   type ClientHealthHeartbeat,
-  type ClientHealthSyncState,
-  type ClientHealthUpdaterState,
-  type ClientHealthVersions,
 } from './contract.js';
+import type { HeartbeatFacts } from './facts.js';
 import type { HealthStateStore } from './state.js';
+import {
+  clientHealthAttributionHeaders,
+  DisabledHealthTransport,
+  type HealthTransport,
+} from './transport.js';
 
 const SEMVER_LOOSE =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-
-export interface HeartbeatFacts {
-  versions: ClientHealthVersions;
-  syncState: ClientHealthSyncState;
-  lastSyncAttemptAt?: string;
-  lastSyncSuccessAt?: string;
-  syncEngineWatermarkAt?: string;
-  consecutiveFailures: number;
-  conflictCount?: number;
-  updaterState?: ClientHealthUpdaterState;
-  failureReason?: ClientHealthFailureReason;
-}
-
-export interface HealthTransport {
-  /** Send an authenticated heartbeat. Must never throw into setup/sync callers. */
-  sendHeartbeat(payload: ClientHealthHeartbeat, headers: Record<string, string>): Promise<void>;
-}
-
-/** Default transport: no network. Production send requires explicit opt-in + auth. */
-export class DisabledHealthTransport implements HealthTransport {
-  async sendHeartbeat(): Promise<void> {
-    /* intentionally no-op — live reporting is gated off until release evidence */
-  }
-}
 
 export interface HealthReporterOptions {
   state: HealthStateStore;
@@ -80,6 +56,10 @@ export class HealthReporter {
     this.now = options.now ?? (() => new Date());
   }
 
+  get isReportingEnabled(): boolean {
+    return this.reportingEnabled && !!this.authToken;
+  }
+
   setReportingEnabled(enabled: boolean, authToken?: string | null): void {
     this.reportingEnabled = enabled;
     if (authToken !== undefined) this.authToken = authToken;
@@ -88,7 +68,8 @@ export class HealthReporter {
   /** Build a validated heartbeat without sending. Advances the persisted sequence. */
   async buildHeartbeat(facts: HeartbeatFacts): Promise<ClientHealthHeartbeat> {
     this.lastFacts = facts;
-    const sequence = await this.state.nextSequence();
+    const now = this.now();
+    const sequence = await this.state.nextSequence(now.getTime());
     const snapshot = this.state.snapshot;
     const desktopVersion = SEMVER_LOOSE.test(this.appVersion) ? this.appVersion : undefined;
     const payload: ClientHealthHeartbeat = {
@@ -97,7 +78,7 @@ export class HealthReporter {
       source: 'desktop',
       platform: healthPlatformFromNode(this.platform),
       arch: healthArchFromNode(this.arch),
-      sentAt: this.now().toISOString(),
+      sentAt: now.toISOString(),
       sequence,
       versions: { ...(desktopVersion ? { desktop: desktopVersion } : {}), ...facts.versions },
       syncState: facts.syncState,
@@ -109,6 +90,7 @@ export class HealthReporter {
     if (facts.conflictCount !== undefined) payload.conflictCount = facts.conflictCount;
     if (facts.updaterState !== undefined) payload.updaterState = facts.updaterState;
     if (facts.failureReason !== undefined) payload.failureReason = facts.failureReason;
+    if (facts.localFilesOverview) payload.localFilesOverview = facts.localFilesOverview;
     return parseClientHealthHeartbeat(payload);
   }
 
@@ -126,11 +108,10 @@ export class HealthReporter {
     }
     if (!this.reportingEnabled || !this.authToken) return heartbeat;
     try {
-      await this.transport.sendHeartbeat(heartbeat, {
-        Authorization: `Bearer ${this.authToken}`,
-        [CLIENT_HEALTH_ATTRIBUTION_HEADER]: CLIENT_HEALTH_CLIENT_NAME,
-        'User-Agent': `${CLIENT_HEALTH_CLIENT_NAME}/${this.appVersion}`,
-      });
+      await this.transport.sendHeartbeat(
+        heartbeat,
+        clientHealthAttributionHeaders(this.appVersion, this.authToken),
+      );
     } catch (error) {
       console.error('Client-health transport failed (non-blocking):', error instanceof Error ? error.message : 'unknown');
     }
@@ -145,6 +126,7 @@ export class HealthReporter {
       this.debounceTimer = undefined;
       if (this.lastFacts) void this.report(this.lastFacts);
     }, delayMs);
+    this.debounceTimer.unref?.();
   }
 
   dispose(): void {

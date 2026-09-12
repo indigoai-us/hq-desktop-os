@@ -1,7 +1,14 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, posix, relative, resolve } from 'node:path';
+import { join, posix, relative, resolve } from 'node:path';
 import { x, t } from 'tar';
+export {
+  SetupJournal,
+  initialSetup,
+  recoverInterruptedSetup,
+  type SetupState,
+  type SetupStep,
+} from './setup-state.js';
 
 /** Reviewed release asset. Updates to the scaffold go through code review. */
 export const HQ_TEMPLATE = {
@@ -9,15 +16,6 @@ export const HQ_TEMPLATE = {
   url: 'https://github.com/indigoai-us/hq-core/releases/download/v15.0.126/hq-core-v15.0.126.tar.gz',
   sha256: '9ce98cf2912dcc7fb8d94b6a0fb5da095fc5c6403625c7d51b444319466c8945',
 };
-export interface SetupStep { id: 'content' | 'dependencies' | 'personalize'; label: string; status: 'waiting' | 'working' | 'ready' | 'error' }
-export interface SetupState { id: string; root: string; steps: SetupStep[]; error: string | null; complete: boolean }
-export function initialSetup(root: string): SetupState {
-  return { id: randomUUID(), root, complete: false, error: null, steps: [
-    { id: 'content', label: 'Getting your workspace ready', status: 'waiting' },
-    { id: 'dependencies', label: 'Preparing this computer', status: 'waiting' },
-    { id: 'personalize', label: 'Adding the finishing touches', status: 'waiting' },
-  ] };
-}
 
 export async function verifiedDownload(url: string, digest: string, maximum = 64 * 1024 * 1024, signal?: AbortSignal): Promise<Buffer> {
   const response = await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000), redirect: 'follow' });
@@ -82,22 +80,6 @@ export async function createWorkspace(parent: string, download = () => verifiedD
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
 
-export class SetupJournal {
-  constructor(private readonly file: string) {}
-  async clear(): Promise<void> { await rm(this.file, { force: true }); }
-  async save(state: SetupState): Promise<void> {
-    await mkdir(dirname(this.file), { recursive: true, mode: 0o700 });
-    await writeFile(`${this.file}.tmp`, JSON.stringify(state), { mode: 0o600 });
-    await rename(`${this.file}.tmp`, this.file);
-  }
-  async load(): Promise<SetupState | undefined> {
-    try {
-      const data = JSON.parse(await readFile(this.file, 'utf8')) as SetupState;
-      if (!data || typeof data.id !== 'string' || typeof data.complete !== 'boolean' || typeof data.root !== 'string' || !Array.isArray(data.steps) || data.steps.length !== 3 || !data.steps.every(step => ['content', 'dependencies', 'personalize'].includes(step.id) && ['waiting', 'working', 'ready', 'error'].includes(step.status))) throw new Error('Your saved setup could not be read. Please restart setup.');
-      return data;
-    } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
-  }
-}
 export function isWithin(root: string, path: string): boolean {
   const rel = relative(resolve(root), resolve(path)); return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/'));
 }

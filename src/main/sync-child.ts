@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { RunnerDeps, RunnerPassResult } from '../../node_modules/@indigoai-us/hq-cloud/dist/bin/sync-runner.js' with { 'resolution-mode': 'import' };
+import { DESKTOP_SYNC_LOCK, DESKTOP_SYNC_LOCK_MODE } from './sync/ownership.js';
 
 // This entry point is started only by main with a private IPC pipe. Tokens never
 // appear in argv, the environment, stdout, or a shared CLI token cache.
@@ -20,9 +21,17 @@ async function main(): Promise<void> {
   await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
   // Synchronous acquisition before any work; the returned SDK handle and exit hook
   // retain the concrete lock path when the journal environment is restored.
+  // Private journals stay under HQ_STATE_DIR so a supervisor restart during apply
+  // reuses recoverable engine state instead of discarding it.
   process.env.HQ_STATE_DIR = process.env.HQ_DESKTOP_SHARED_STATE_DIR;
-  try { locks.acquireOperationLock(process.argv[process.argv.indexOf('--hq-root') + 1]!, 'desktop-sync', { wait: false, mode: 'exclusive' }); }
-  finally { process.env.HQ_STATE_DIR = stateDirectory; }
+  try {
+    locks.acquireOperationLock(process.argv[process.argv.indexOf('--hq-root') + 1]!, DESKTOP_SYNC_LOCK, {
+      wait: false,
+      mode: DESKTOP_SYNC_LOCK_MODE,
+    });
+  } finally {
+    process.env.HQ_STATE_DIR = stateDirectory;
+  }
   const { CognitoRefreshError } = await import('@indigoai-us/hq-cloud');
   let sequence = 0;
   let claims: { sub: string; name: string } | null = null;

@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "product": "hq-desktop-os",
+  "syncEngine": {
+    "package": "@indigoai-us/hq-cloud",
+    "version": "6.16.35",
+    "integrity": "sha512-NX9i2mBVCsWesjeX0zyzBs3I3q9XRhn0aP/ptOqlKOAh7dgJc/HUQtUdJTWzuU8NlNAiaQDxtUjXghBxNX/L6w==",
+    "license": "MIT",
+    "source": "public-npm",
+    "notes": "Exact pin on the reviewed 6.16 minor line. No caret/tilde and no launch-time npx."
+  },
+  "hostRuntime": {
+    "electron": "40.0.0",
+    "electronLicense": "MIT",
+    "bundledNodePolicy": "Use Electron's embedded Node via ELECTRON_RUN_AS_NODE for the owned sync child. Launch must not require a global Node or floating npx.",
+    "contributorEngines": {
+      "node": ">=22.12.0 <25",
+      "pnpm": "10.28.2"
+    }
+  },
+  "setupToolchain": {
+    "scope": "Private per-userData toolchain created by guided Linux x64 setup. Does not mutate the system Node install or shell profile.",
+    "node": {
+      "version": "22.17.0",
+      "url": "https://nodejs.org/dist/v22.17.0/node-v22.17.0-linux-x64.tar.gz",
+      "sha256": "0fa01328a0f3d10800623f7107fbcd654a60ec178fab1ef5b9779e94e0419e1a",
+      "license": "MIT"
+    },
+    "hqCli": {
+      "package": "@indigoai-us/hq-cli",
+      "version": "5.109.6",
+      "integrity": "sha512-b717Hhp2p1pr07Gw82DH1c6EMUOVRFrLC+FDCIEjrd+XEfT63+K3kbn5m9aWeh0PORbInkQLkTmuCRjOKNWHtA==",
+      "license": "MIT",
+      "cloudRange": "~6.16.28"
+    },
+    "qmd": {
+      "package": "@tobilu/qmd",
+      "version": "2.5.3",
+      "integrity": "sha512-wUKc4pSPDbgs7mV7JYE8/Qj1pNXXatJFV8byTT/T3yLaoAXheFtWu0BgSWwoWGhRkMmxl5Qyitt66NHgbMyeBA==",
+      "license": "MIT"
+    },
+    "yq": {
+      "version": "4.47.1",
+      "url": "https://github.com/mikefarah/yq/releases/download/v4.47.1/yq_linux_amd64",
+      "sha256": "0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb",
+      "license": "MIT"
+    },
+    "jq": {
+      "version": "1.8.1",
+      "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64",
+      "sha256": "020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d",
+      "license": "MIT"
+    },
+    "git": {
+      "requirement": "system",
+      "platforms": [
+        "linux"
+      ],
+      "notes": "Installer dependency (deb Depends: git). Setup refuses to continue without an absolute /usr path executable."
+    }
+  },
+  "hqCoreTemplate": {
+    "version": "15.0.126",
+    "url": "https://github.com/indigoai-us/hq-core/releases/download/v15.0.126/hq-core-v15.0.126.tar.gz",
+    "sha256": "9ce98cf2912dcc7fb8d94b6a0fb5da095fc5c6403625c7d51b444319466c8945",
+    "license": "see-release-archive"
+  },
+  "rejectedAdapters": [
+    {
+      "package": "create-hq",
+      "auditedVersion": "10.12.11",
+      "cloudDependency": "^5.19.1",
+      "decision": "reject",
+      "reason": "Pins hq-cloud major 5; incompatible with the reviewed 6.16 sync engine line used by this companion."
+    },
+    {
+      "package": "@indigoai-us/hq-onboarding",
+      "auditedVersion": "0.1.2",
+      "cloudDependency": "^5.1.0",
+      "decision": "reject",
+      "reason": "Declares hq-cloud ^5.1.0; cannot share one compatible sync engine with @indigoai-us/hq-cloud@6.16.35."
+    }
+  ],
+  "chosenAdapter": {
+    "id": "owned-guided-setup",
+    "modules": [
+      "src/main/setup.ts",
+      "src/main/setup-dependencies.ts",
+      "src/main/sync-child.ts"
+    ],
+    "syncEngine": "@indigoai-us/hq-cloud@6.16.35",
+    "privateSourceAccess": false
+  },
+  "payloadBudgets": {
+    "hqCloudInstalledBytesMax": 25000000,
+    "syncChildSourceBytesMax": 20000,
+    "idleChildRssBytesMax": 200000000
+  },
+  "platformEvidence": {
+    "linux": {
+      "childProcessIpc": "covered",
+      "shutdown": "covered",
+      "workspaceRegistry": "covered",
+      "credentialLifecycle": "covered",
+      "guidedSetup": "covered",
+      "companySelection": "covered",
+      "syncSupervisor": "covered",
+      "syncControls": "covered",
+      "diagnostics": "covered",
+      "background": "covered",
+      "notes": "Owned ELECTRON_RUN_AS_NODE child with private IPC stop + lock release; unit SyncSupervisor stop ownership; scripts/verify-sync-child.mjs packaged probe. Workspace registry persists root/environment/installationId atomically with alias + dual-ownership checks (tests/native/workspaces.test.ts). Credential lifecycle: PKCE loopback + Cognito verify, OS safeStorage with basic_text fail-closed, desktop account.encrypted isolated from ~/.hq/cognito-tokens.json, sign-out clears owned credentials without deleting workspace files (tests/native/auth.test.ts). Guided setup journal + crash recovery (setup-state.ts / tests/native/setup.test.ts); membership discovery keeps explicit retry state and opens hq.computer create/invite web flows with focus-return refresh. US-012: shared hq-sync-runner argv (--watch/--direction both/--event-push + explicit scope), NDJSON protocol reduce, exclusive desktop-sync lock, bounded restart/backoff, pause/resume + IPC stop that preserves HQ_STATE_DIR journals (src/main/sync/*, tests/unit/sync-supervisor.test.ts, tests/runtime/supervisor.test.ts). US-013: Sync screen + status expose reconciliation/pending/realtime/polling/offline/paused/last confirmed sync from runner events; pause/resume/retry + validated scope controls; conflict list keep/publish-local/overwrite/abort with default abort (src/renderer/screens/sync.tsx, sync-status.tsx, conflict-list.tsx, tests/e2e/sync.spec.ts). US-016: Settings diagnostics show app/runtime versions, workspace environment, sync outcomes, and health probe results; support export requires redacted preview before save with synthetic secret/path markers stripped (src/main/diagnostics.ts, settings.tsx, tests/native/diagnostics.test.ts); narrowly scoped Repair restores owned userData toolchain only and fingerprints workspace roots to prove no content mutation; missing vs failed runtime diagnoses stay distinct with retry guidance. US-017: tray lifecycle + opt-in start-at-login via TrayController / autostart / lifecycle modules (src/main/tray.ts, autostart.ts, lifecycle.ts, tests/native/background.test.ts); close-to-tray keeps sync with discoverable Open/Pause/Quit tray menu while Quit runs ShutdownGate to stop owned watchers; Linux XDG autostart is per-user, idempotent, and AppImage-aware; no-tray hosts stay window-required with Settings disabled; WSL enablement is refused with visible guidance (no invisible failed startup loop). Authenticated live subscribe/exchange and authenticated two-client conflict convergence remain deferred to user OAuth desktop acceptance \u2014 fixture/unit evidence covers the UI contract without claiming a live cloud round trip. US-022: shared client-health contract/reporter/state under src/main/health/ with attribution hq-desktop-os, environment-isolated install id + monotonic sequence, startup/5-minute/debounced heartbeat scheduler, bounded local-file facts, and HTTP transport default OFF unless HQ_CLIENT_HEALTH_REPORTING=1 + auth (tests/native/client-health.test.ts, __tests__/stories/US-022.test.ts). Live support-view heartbeats on Windows11/Ubuntu24.04/WSL2 and upstream mapping remain deferred \u2014 prd.passes stays false.",
+      "clientHealth": "covered"
+    },
+    "windows": {
+      "childProcessIpc": "deferred",
+      "shutdown": "deferred",
+      "workspaceRegistry": "deferred",
+      "credentialLifecycle": "deferred",
+      "guidedSetup": "deferred",
+      "companySelection": "deferred",
+      "syncSupervisor": "deferred",
+      "syncControls": "deferred",
+      "diagnostics": "deferred",
+      "background": "deferred",
+      "notes": "Native Windows host matrix remains outstanding (including Windows Credential Manager / DPAPI acceptance, Windows guided setup, Windows sync supervisor, sync controls UI acceptance, diagnostics/repair acceptance, and tray/login-item acceptance); prepare-runtime records the gap without blocking Linux acceptance. US-022 client-health live support-view proof on Windows 11 x64 remains deferred.",
+      "clientHealth": "deferred"
+    },
+    "wsl2": {
+      "childProcessIpc": "deferred",
+      "shutdown": "deferred",
+      "workspaceRegistry": "deferred",
+      "credentialLifecycle": "deferred",
+      "syncSupervisor": "deferred",
+      "syncControls": "deferred",
+      "diagnostics": "deferred",
+      "background": "deferred",
+      "discovery": "contract-only",
+      "notes": "WSL discovery module returns actionable unavailable/missing/stopped states and rejects WSL1 via injectable parser tests. Live Windows WSL2 picker + runtime ownership remain US-014; not claimed from Linux fixtures. Auth handoff into a distro is US-014. Diagnostics/repair on WSL remain deferred with US-014. Start-at-login inside WSL is refused with visible guidance (bounded; no invisible failed loop); full WSL host startup acceptance stays deferred. US-022 WSL2 health identity isolation is unit-covered; live support-view proof remains deferred.",
+      "clientHealth": "deferred"
+    }
+  }
+}

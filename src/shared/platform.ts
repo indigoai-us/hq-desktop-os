@@ -10,6 +10,8 @@ export const REVIEWED_HTTPS_LINKS = Object.freeze([
   'https://github.com/indigoai-us/hq-desktop-os',
   'https://github.com/indigoai-us/hq-desktop-os/issues',
   'https://github.com/indigoai-us/hq-desktop-os/blob/main/README.md',
+  'https://hq.computer/signup/team',
+  'https://hq.computer/onboarding',
 ] as const);
 
 export type ReviewedHttpsLink = (typeof REVIEWED_HTTPS_LINKS)[number];

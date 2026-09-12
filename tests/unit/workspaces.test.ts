@@ -19,6 +19,8 @@ describe('workspace ownership', () => {
     const alias = join(path, 'alias'); await symlink(root, alias, 'dir');
     const [first, second] = await Promise.all([registry.attach(root), registry.attach(alias)]);
     expect(first.id).toBe(second.id); expect(registry.snapshot.workspaces).toHaveLength(1);
+    expect(first.wslDistro).toBeNull();
+    expect(first.environment).toBe(process.platform === 'win32' ? 'windows' : 'linux');
     const restored = new WorkspaceRegistry(join(path, 'app')); await restored.load();
     expect(restored.snapshot).toEqual(registry.snapshot);
   });

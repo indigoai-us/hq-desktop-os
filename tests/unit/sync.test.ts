@@ -31,6 +31,29 @@ describe('truthful sync status', () => {
     lines.push('x'.repeat(300000)); lines.push('\n'); lines.push(JSON.stringify(complete) + '\n');
     expect(events.map(event => event.type)).toEqual(['progress', 'all-complete']);
   });
+  it('maps plan/progress into reconciliation and pending passes without inventing success', () => {
+    const reconciling = reduceSync(pausedSync(), { type: 'plan', filesToDownload: 0, filesToUpload: 0, filesToDelete: 0 });
+    expect(reconciling).toMatchObject({ phase: 'syncing', pass: 'reconciling', pendingCount: 0, message: 'Checking your files', lastSuccess: null });
+    const pending = reduceSync(reconciling, { type: 'plan', filesToDownload: 2, filesToUpload: 1, filesToDelete: 0 });
+    expect(pending).toMatchObject({ phase: 'syncing', pass: 'pending', pendingCount: 3, message: 'Updating 3 files', lastSuccess: null });
+    const transferring = reduceSync(pending, { type: 'progress', path: 'notes/a.md', bytes: 12 });
+    expect(transferring).toMatchObject({ phase: 'syncing', pass: 'transferring', lastSuccess: null });
+  });
+  it('marks live realtime after a clean all-complete and polling after a degraded watch warn', () => {
+    const live = reduceSync(pausedSync(), complete);
+    expect(live).toMatchObject({ phase: 'idle', transport: 'realtime', pass: null, pendingCount: 0 });
+    const events: Record<string, unknown>[] = [];
+    const lines = new RunnerLines(event => events.push(event));
+    lines.push('hq-sync-runner: WARN event-push watcher degraded; continuing cadence-only\n');
+    expect(events).toEqual([{ type: 'transport', mode: 'polling' }]);
+    expect(reduceSync(live, events[0]!)).toMatchObject({
+      phase: 'idle',
+      transport: 'polling',
+      message: 'Connected · checking periodically',
+      lastSuccess: live.lastSuccess,
+    });
+    expect(reduceSync(live, { type: 'transient-network' })).toMatchObject({ phase: 'offline', transport: 'offline' });
+  });
 });
 describe('account-scoped work selection', () => {
   it('accepts projected companyName from active memberships and offers an all fan-out', () => {
@@ -54,6 +77,16 @@ describe('account-scoped work selection', () => {
     expect(parseCompanionAction({ action: 'select-sync-scope', scopeId: 'personal' })).toEqual({ action: 'select-sync-scope', scopeId: 'personal' });
     expect(parseCompanionAction({ action: 'select-sync-scope', scopeId: 'all' })).toEqual({ action: 'select-sync-scope', scopeId: 'all' });
     expect(parseCompanionAction({ action: 'sign-in', scopeId: 'personal' })).toBeNull();
+  });
+  it('accepts only reviewed HQ console destinations for company web flows', () => {
+    expect(parseCompanionAction({ action: 'open-hq-web', destination: 'create-company' })).toEqual({ action: 'open-hq-web', destination: 'create-company' });
+    expect(parseCompanionAction({ action: 'open-hq-web', destination: 'accept-invite' })).toEqual({ action: 'open-hq-web', destination: 'accept-invite' });
+    for (const input of [
+      { action: 'open-hq-web' },
+      { action: 'open-hq-web', destination: 'https://evil.example' },
+      { action: 'open-hq-web', destination: 'create-company', scopeId: 'personal' },
+      { action: 'load-sync-scopes', destination: 'create-company' },
+    ]) expect(parseCompanionAction(input)).toBeNull();
   });
   it('accepts only engine conflict choices and relative paths for resolve-conflicts', () => {
     expect(parseCompanionAction({ action: 'resolve-conflicts', choice: 'keep' })).toEqual({ action: 'resolve-conflicts', choice: 'keep' });
